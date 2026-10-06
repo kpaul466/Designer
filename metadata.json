@@ -1,0 +1,6 @@
+{
+  "name": "PowerLine Designer",
+  "description": "Professional Electrical Line Maintenance, Erection & Drawing Management System with A4 PDF export, CAD drafting, and automated BOQ schedule.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
