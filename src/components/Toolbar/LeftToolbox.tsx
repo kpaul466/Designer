@@ -1,5 +1,6 @@
 /**
  * Left CAD Tool Palette
+ * Clean Light Theme:
  * High-density tool icons for electrical drafting entities, civil features, switchgear, and custom tools
  */
 
@@ -122,17 +123,17 @@ export const LeftToolbox: React.FC<LeftToolboxProps> = ({
   ];
 
   return (
-    <aside className="w-16 md:w-56 bg-slate-900 border-r border-slate-800 flex flex-col justify-between overflow-y-auto select-none shrink-0 z-20">
+    <aside className="w-16 md:w-56 bg-white border-r border-slate-200 flex flex-col justify-between overflow-y-auto select-none shrink-0 z-20 shadow-xs">
       <div className="p-2 space-y-4">
         {/* Custom Tools Section */}
         <div className="space-y-1">
           <div className="flex items-center justify-between px-2 pt-1">
-            <span className="hidden md:inline text-[10px] font-bold uppercase tracking-wider text-amber-400">
+            <span className="hidden md:inline text-[10px] font-bold uppercase tracking-wider text-amber-700">
               Custom Tools
             </span>
             <button
               onClick={onOpenCustomToolModal}
-              className="text-[10px] flex items-center gap-1 text-amber-300 hover:text-white bg-amber-950/70 hover:bg-amber-900 px-1.5 py-0.5 rounded border border-amber-700/50 transition-colors"
+              className="text-[10px] flex items-center gap-1 text-amber-800 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 px-1.5 py-0.5 rounded border border-amber-300 transition-colors font-medium"
               title="Create custom electrical / civil tool"
             >
               <Plus className="w-3 h-3" />
@@ -150,8 +151,8 @@ export const LeftToolbox: React.FC<LeftToolboxProps> = ({
                     onClick={() => onSelectTool(ct.id as ActiveTool)}
                     className={`flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-left transition-all ${
                       isActive
-                        ? 'bg-amber-600 text-white font-semibold shadow'
-                        : 'text-amber-200 hover:bg-slate-800 hover:text-white border border-amber-900/30'
+                        ? 'bg-amber-600 text-white font-semibold shadow-xs'
+                        : 'text-amber-900 hover:bg-amber-50 border border-amber-200'
                     }`}
                     title={`${ct.name} (${ct.boqDescription})`}
                   >
@@ -162,7 +163,7 @@ export const LeftToolbox: React.FC<LeftToolboxProps> = ({
                       {ct.iconText.slice(0, 2)}
                     </div>
                     <span className="text-xs truncate hidden md:inline">{ct.name}</span>
-                    <span className="ml-auto text-[9px] font-mono px-1 py-0.2 rounded hidden md:inline bg-slate-800 text-slate-300">
+                    <span className="ml-auto text-[9px] font-mono px-1 py-0.2 rounded hidden md:inline bg-white text-slate-600 border border-slate-200">
                       {ct.unit}
                     </span>
                   </button>
@@ -172,7 +173,7 @@ export const LeftToolbox: React.FC<LeftToolboxProps> = ({
           ) : (
             <button
               onClick={onOpenCustomToolModal}
-              className="w-full text-center py-2 px-2 border border-dashed border-slate-700 hover:border-amber-500 rounded-lg text-[11px] text-slate-400 hover:text-amber-300 transition-colors hidden md:block"
+              className="w-full text-center py-2 px-2 border border-dashed border-slate-300 hover:border-amber-500 rounded-lg text-[11px] text-slate-500 hover:text-amber-700 hover:bg-amber-50/50 transition-colors hidden md:block"
             >
               + Create Custom Symbol
             </button>
@@ -196,8 +197,8 @@ export const LeftToolbox: React.FC<LeftToolboxProps> = ({
                     onClick={() => onSelectTool(tool.id)}
                     className={`flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-left transition-all ${
                       isActive
-                        ? 'bg-red-600 text-white font-semibold shadow-md shadow-red-950'
-                        : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                        ? 'bg-red-600 text-white font-bold shadow-xs'
+                        : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
                     }`}
                     title={tool.label}
                   >
@@ -207,8 +208,8 @@ export const LeftToolbox: React.FC<LeftToolboxProps> = ({
                       <span
                         className={`ml-auto text-[9px] font-mono px-1 py-0.2 rounded hidden md:inline ${
                           isActive
-                            ? 'bg-red-700 text-white'
-                            : 'bg-slate-800 text-slate-400'
+                            ? 'bg-red-700 text-white font-semibold'
+                            : 'bg-slate-100 text-slate-500 border border-slate-200'
                         }`}
                       >
                         {tool.badge}
@@ -223,11 +224,11 @@ export const LeftToolbox: React.FC<LeftToolboxProps> = ({
       </div>
 
       {/* Quick Tooltip at bottom */}
-      <div className="hidden md:block p-3 border-t border-slate-800 bg-slate-900/60 text-[11px] text-slate-400 leading-tight">
-        <div className="font-semibold text-slate-300 mb-0.5">Quick Guide</div>
+      <div className="hidden md:block p-3 border-t border-slate-200 bg-slate-50 text-[11px] text-slate-600 leading-tight">
+        <div className="font-semibold text-slate-900 mb-0.5">Quick Guide</div>
         <div>• Click 2 poles to draw conductor wire</div>
         <div>• Ctrl + Scroll to zoom in/out</div>
-        <div>• Click + Drag to multi-select</div>
+        <div>• Hold Space or use Hand (H) to pan</div>
       </div>
     </aside>
   );

@@ -1,12 +1,12 @@
 /**
  * GIS Map Underlay Component
- * 100% Identical Canvas & Map Size (1:1 Locked Framing)
- * Continuous Real-Time Google Maps Zoom:
- * - Map size and canvas size are strictly identical (width: canvasBounds.width, height: canvasBounds.height)
- * - Map zoom updates in real time with continuous sub-tile interpolation matching Google Maps zoom (levels 12 to 20)
- * - Dynamic Slippy map tiles (ArcGIS World Satellite Imagery, OpenStreetMap, CartoDB Road Map)
- * - Dedicated Google Maps style zoom controls (+, -, scale bar, and live zoom readout)
- * - Center GPS pin marker with location info
+ * 100% Canvas & Map Size Synchronization (1:1 Locked Framing)
+ * Light Theme Matched with Canvas Drawing Workspace:
+ * - Map frame background, cartography, and UI match the crisp light canvas theme
+ * - Continuous Real-Time Google Maps Zoom (interpolated 12x to 20x zoom)
+ * - Dynamic Slippy map tiles (ArcGIS World Satellite Imagery, OpenStreetMap, CartoDB Light Voyager)
+ * - Google Maps style floating zoom controls (+, -, scale bar, preset feeder levels)
+ * - High-contrast GPS pin marker with location details
  */
 
 import React, { useMemo } from 'react';
@@ -76,7 +76,7 @@ export const MapUnderlay: React.FC<MapUnderlayProps> = ({
   const centerLng = geoLocation?.lng ?? 89.2845;
 
   // Real-time continuous Google Maps zoom calculation:
-  // As canvas zoom increases from fitZoom, continuous zoom increases logarithmically
+  // As canvas zoom increases from fitZoom, continuous zoom increases smoothly
   const baseGoogleZoom = mapZoomLevel || 16;
   const zoomRatio = Math.max(zoom / Math.max(fitZoom, 0.05), 0.5);
   const continuousGoogleZoom = Math.min(Math.max(baseGoogleZoom + Math.log2(zoomRatio), 12), 20);
@@ -123,7 +123,7 @@ export const MapUnderlay: React.FC<MapUnderlayProps> = ({
   const metersPerPixel = getMetersPerPixel(centerLat, continuousGoogleZoom);
   const scaleBarMeters = Math.round(metersPerPixel * 80);
 
-  // Requirement: "map size and canvas size must be same"
+  // Map size and canvas size are strictly 100% identical
   const mapWidth = canvasBounds.width;
   const mapHeight = canvasBounds.height;
   const mapX = canvasBounds.x;
@@ -146,9 +146,9 @@ export const MapUnderlay: React.FC<MapUnderlayProps> = ({
           transformOrigin: '0 0',
         }}
       >
-        {/* Exact Canvas Bounding Box (Map size and Canvas size are 100% Identical) */}
+        {/* Exact Canvas Bounding Box (Map size and Canvas size are 100% Identical in Light Theme) */}
         <div
-          className="absolute rounded-xl overflow-hidden shadow-2xl bg-slate-950 border border-slate-700/60"
+          className="absolute rounded-xl overflow-hidden shadow-2xl bg-white border border-slate-300"
           style={{
             left: `${mapX}px`,
             top: `${mapY}px`,
@@ -196,7 +196,7 @@ export const MapUnderlay: React.FC<MapUnderlayProps> = ({
             </div>
           </div>
 
-          {/* Proportional Vector Cartography Elements within Canvas Bounds */}
+          {/* Proportional Vector Cartography Elements (Light-matched Theme) */}
           <div
             className="absolute inset-0 pointer-events-none"
             style={{
@@ -209,15 +209,15 @@ export const MapUnderlay: React.FC<MapUnderlayProps> = ({
           >
             <svg className="w-full h-full" xmlns="http://www.w3.org/2000/svg">
               <defs>
-                <pattern id="crop-field-sat-subtle" width="100" height="70" patternUnits="userSpaceOnUse">
-                  <rect width="100" height="70" fill="#2d5329" fillOpacity="0.12" stroke="#3e6c38" strokeWidth="0.5" strokeOpacity="0.2" />
-                  <path d="M 0 25 L 100 25 M 0 50 L 100 50" stroke="#365f32" strokeWidth="0.5" strokeOpacity="0.15" />
+                <pattern id="crop-field-sat-light" width="100" height="70" patternUnits="userSpaceOnUse">
+                  <rect width="100" height="70" fill="#16a34a" fillOpacity="0.08" stroke="#15803d" strokeWidth="0.5" strokeOpacity="0.15" />
+                  <path d="M 0 25 L 100 25 M 0 50 L 100 50" stroke="#16a34a" strokeWidth="0.5" strokeOpacity="0.12" />
                 </pattern>
               </defs>
 
               {/* Sub-division Agricultural Plots */}
-              <rect x="50" y="80" width={mapWidth * 0.35} height={mapHeight * 0.35} fill="url(#crop-field-sat-subtle)" />
-              <rect x={mapWidth * 0.55} y="100" width={mapWidth * 0.4} height={mapHeight * 0.3} fill="url(#crop-field-sat-subtle)" />
+              <rect x="50" y="80" width={mapWidth * 0.35} height={mapHeight * 0.35} fill="url(#crop-field-sat-light)" />
+              <rect x={mapWidth * 0.55} y="100" width={mapWidth * 0.4} height={mapHeight * 0.3} fill="url(#crop-field-sat-light)" />
 
               {/* River Crossing Corridor */}
               <path
@@ -234,17 +234,17 @@ export const MapUnderlay: React.FC<MapUnderlayProps> = ({
                 stroke="#38bdf8"
                 strokeWidth="2"
                 strokeDasharray="10 5"
-                opacity="0.8"
+                opacity="0.9"
               />
 
               {/* Primary Feeder Highway (NH-31D) */}
-              <path d={`M 0 ${mapHeight * 0.32} L ${mapWidth} ${mapHeight * 0.32}`} fill="none" stroke="#0f172a" strokeWidth="9" opacity="0.75" />
-              <path d={`M 0 ${mapHeight * 0.32} L ${mapWidth} ${mapHeight * 0.32}`} fill="none" stroke="#f59e0b" strokeWidth="5" opacity="0.75" />
+              <path d={`M 0 ${mapHeight * 0.32} L ${mapWidth} ${mapHeight * 0.32}`} fill="none" stroke="#334155" strokeWidth="8" opacity="0.8" />
+              <path d={`M 0 ${mapHeight * 0.32} L ${mapWidth} ${mapHeight * 0.32}`} fill="none" stroke="#f59e0b" strokeWidth="4" opacity="0.85" />
               <path d={`M 0 ${mapHeight * 0.32} L ${mapWidth} ${mapHeight * 0.32}`} fill="none" stroke="#ffffff" strokeWidth="1" strokeDasharray="8 6" />
 
               {/* Secondary Feeder Roads */}
-              <path d={`M ${mapWidth * 0.3} 0 L ${mapWidth * 0.3} ${mapHeight}`} fill="none" stroke="#475569" strokeWidth="5" opacity="0.6" />
-              <path d={`M ${mapWidth * 0.3} 0 L ${mapWidth * 0.3} ${mapHeight}`} fill="none" stroke="#94a3b8" strokeWidth="2.5" opacity="0.75" />
+              <path d={`M ${mapWidth * 0.3} 0 L ${mapWidth * 0.3} ${mapHeight}`} fill="none" stroke="#64748b" strokeWidth="4.5" opacity="0.7" />
+              <path d={`M ${mapWidth * 0.3} 0 L ${mapWidth * 0.3} ${mapHeight}`} fill="none" stroke="#e2e8f0" strokeWidth="2" opacity="0.9" />
             </svg>
           </div>
 
@@ -261,21 +261,21 @@ export const MapUnderlay: React.FC<MapUnderlayProps> = ({
               {/* Radar pulse ripples */}
               <div className="absolute left-1/2 top-full -translate-x-1/2 -translate-y-1/2">
                 <span className="absolute w-8 h-8 -left-4 -top-4 rounded-full bg-red-500/40 animate-ping" />
-                <span className="absolute w-4 h-4 -left-2 -top-2 rounded-full bg-red-600 shadow-lg shadow-red-950" />
+                <span className="absolute w-4 h-4 -left-2 -top-2 rounded-full bg-red-600 shadow-md shadow-red-500/50" />
               </div>
 
               {/* Pin Icon with Drop Shadow */}
               <div className="relative flex flex-col items-center animate-bounce">
-                <div className="w-8 h-8 rounded-xl bg-red-600 text-white flex items-center justify-center shadow-2xl border-2 border-white/90">
+                <div className="w-8 h-8 rounded-xl bg-red-600 text-white flex items-center justify-center shadow-xl border-2 border-white">
                   <MapPin className="w-4 h-4 fill-white" />
                 </div>
                 <div className="w-1 h-2 bg-red-600 rounded-b" />
               </div>
 
-              {/* Pin Info Popup Card */}
-              <div className="mt-1 px-3 py-1 bg-slate-900/95 backdrop-blur-md border border-slate-700 rounded-xl shadow-2xl text-[10.5px] text-white flex flex-col items-center whitespace-nowrap min-w-[130px]">
-                <span className="font-bold tracking-tight text-white">{geoLocation.name}</span>
-                <span className="text-[9px] text-slate-400 font-mono">
+              {/* Pin Info Popup Card (Light Theme) */}
+              <div className="mt-1 px-3 py-1.5 bg-white/95 backdrop-blur-md border border-slate-200 rounded-xl shadow-xl text-[10.5px] text-slate-800 flex flex-col items-center whitespace-nowrap min-w-[130px]">
+                <span className="font-bold tracking-tight text-slate-900">{geoLocation.name}</span>
+                <span className="text-[9px] text-slate-500 font-mono">
                   {centerLat.toFixed(4)}° N, {centerLng.toFixed(4)}° E
                 </span>
                 {onPlaceCanvasHere && (
@@ -284,7 +284,7 @@ export const MapUnderlay: React.FC<MapUnderlayProps> = ({
                       e.stopPropagation();
                       onPlaceCanvasHere(geoLocation);
                     }}
-                    className="mt-1 px-2 py-0.5 bg-red-600 hover:bg-red-500 text-white rounded text-[9.5px] font-bold flex items-center gap-1 shadow transition-colors"
+                    className="mt-1 px-2.5 py-0.5 bg-red-600 hover:bg-red-500 text-white rounded text-[9.5px] font-bold flex items-center gap-1 shadow-sm transition-colors"
                   >
                     <Crosshair className="w-3 h-3" />
                     <span>Place Canvas Center</span>
@@ -294,66 +294,66 @@ export const MapUnderlay: React.FC<MapUnderlayProps> = ({
             </div>
           )}
 
-          {/* 1:1 Page Size & Map Synchronization Tag */}
-          <div className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded-lg bg-slate-900/90 border border-sky-500/50 text-[10px] text-sky-300 font-mono font-bold flex items-center gap-1.5 shadow-md pointer-events-none">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          {/* 1:1 Page Size & Map Synchronization Tag (Light Theme) */}
+          <div className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded-lg bg-white/95 border border-sky-400 text-[10px] text-sky-800 font-mono font-bold flex items-center gap-1.5 shadow-sm pointer-events-none">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
             <span>GIS Map Locked to Page ({mapWidth} × {mapHeight})</span>
           </div>
         </div>
       </div>
 
-      {/* ---------------- REAL-TIME GOOGLE MAPS FLOATING CONTROLS DOCK ---------------- */}
+      {/* ---------------- REAL-TIME GOOGLE MAPS FLOATING CONTROLS DOCK (Light Theme) ---------------- */}
       <div className="absolute bottom-6 left-6 z-20 flex flex-col gap-2 pointer-events-auto">
         {/* Coordinates, Provider & Scale Bar */}
-        <div className="bg-slate-900/95 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-700/80 text-xs text-slate-200 flex items-center gap-2.5 shadow-2xl">
-          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="font-bold text-white tracking-tight">
+        <div className="bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-200 text-xs text-slate-800 flex items-center gap-2.5 shadow-xl">
+          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+          <span className="font-bold text-slate-900 tracking-tight">
             {locationName || 'Falakata Distribution Feeder'}
           </span>
-          <span className="text-slate-600">|</span>
-          <span className="text-slate-300 font-mono text-[11px]">
+          <span className="text-slate-300">|</span>
+          <span className="text-slate-600 font-mono text-[11px]">
             {centerLat.toFixed(4)}° N, {centerLng.toFixed(4)}° E
           </span>
-          <span className="text-slate-600">|</span>
-          <span className="text-sky-300 font-semibold uppercase text-[10px] bg-sky-950 px-2 py-0.5 rounded border border-sky-800/60">
+          <span className="text-slate-300">|</span>
+          <span className="text-sky-700 font-semibold uppercase text-[10px] bg-sky-50 px-2 py-0.5 rounded border border-sky-200">
             {mapType.toUpperCase()}
           </span>
 
           {/* Scale Bar */}
-          <div className="flex items-center gap-1 border-l border-slate-700 pl-2">
-            <div className="w-12 h-1 border-b-2 border-l-2 border-r-2 border-white" />
-            <span className="text-[10px] font-mono text-slate-300">{scaleBarMeters} m</span>
+          <div className="flex items-center gap-1 border-l border-slate-200 pl-2">
+            <div className="w-12 h-1 border-b-2 border-l-2 border-r-2 border-slate-800" />
+            <span className="text-[10px] font-mono text-slate-600">{scaleBarMeters} m</span>
           </div>
         </div>
 
         {/* Google Maps Style Real-Time Zoom Pill */}
-        <div className="bg-slate-900/95 backdrop-blur-md px-2.5 py-1.5 rounded-xl border border-slate-700/80 text-xs text-slate-200 flex items-center gap-2 shadow-xl w-fit">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+        <div className="bg-white/95 backdrop-blur-md px-2.5 py-1.5 rounded-xl border border-slate-200 text-xs text-slate-800 flex items-center gap-2 shadow-xl w-fit">
+          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
             Google Map Zoom:
           </span>
           {onMapZoomOut && (
             <button
               onClick={onMapZoomOut}
-              className="p-1 hover:bg-slate-800 text-slate-300 hover:text-white rounded-lg transition-colors"
+              className="p-1 hover:bg-slate-100 text-slate-600 hover:text-slate-900 rounded-lg transition-colors"
               title="Zoom out Google Maps layer"
             >
               <ZoomOut className="w-3.5 h-3.5" />
             </button>
           )}
-          <span className="font-mono font-bold text-[11px] text-sky-400 px-1">
+          <span className="font-mono font-bold text-[11px] text-sky-700 px-1">
             {continuousGoogleZoom.toFixed(1)}x (Lvl {tileZoom})
           </span>
           {onMapZoomIn && (
             <button
               onClick={onMapZoomIn}
-              className="p-1 hover:bg-slate-800 text-slate-300 hover:text-white rounded-lg transition-colors"
+              className="p-1 hover:bg-slate-100 text-slate-600 hover:text-slate-900 rounded-lg transition-colors"
               title="Zoom in Google Maps layer"
             >
               <ZoomIn className="w-3.5 h-3.5" />
             </button>
           )}
 
-          <div className="h-4 w-px bg-slate-700 mx-0.5" />
+          <div className="h-4 w-px bg-slate-200 mx-0.5" />
 
           {/* Preset Zoom Levels */}
           {onMapZoomLevelChange && (
@@ -369,8 +369,8 @@ export const MapUnderlay: React.FC<MapUnderlayProps> = ({
                   onClick={() => onMapZoomLevelChange(lvl.level)}
                   className={`px-1.5 py-0.5 rounded text-[9.5px] font-medium transition-colors ${
                     tileZoom === lvl.level
-                      ? 'bg-sky-600 text-white font-bold'
-                      : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                      ? 'bg-sky-600 text-white font-bold shadow-xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900'
                   }`}
                 >
                   {lvl.label}

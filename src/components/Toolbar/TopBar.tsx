@@ -1,6 +1,6 @@
 /**
  * Top CAD Navigation & Action Bar
- * 100% Client-Side Local Storage & Precision CAD Controls:
+ * Clean Engineering Light Theme:
  * - Brand & Project Breadcrumb
  * - Project Setup & Title Block
  * - Saved Drawings Manager (LocalStorage)
@@ -112,42 +112,46 @@ export const TopBar: React.FC<TopBarProps> = ({
   const currentPageDef = PAGE_SIZE_DEFINITIONS[project.metadata.sheetSize || 'A4'] || PAGE_SIZE_DEFINITIONS.A4;
 
   return (
-    <header className="h-14 bg-slate-900 border-b border-slate-800 px-3 sm:px-4 flex items-center justify-between text-slate-200 select-none z-30 shrink-0">
+    <header className="h-14 bg-white border-b border-slate-200 px-3 sm:px-4 flex items-center justify-between text-slate-700 select-none z-30 shrink-0 shadow-xs">
       {/* Zone 1: Wordmark, Project Breadcrumb, & Setup */}
       <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-        <div className="flex items-center gap-2 cursor-pointer" onClick={onOpenTemplates} title="Browse Sample Templates">
-          <div className="w-8 h-8 rounded-lg bg-red-600 flex items-center justify-center text-white shadow-md shadow-red-950">
+        <div
+          className="flex items-center gap-2 cursor-pointer hover:opacity-90 transition-opacity"
+          onClick={onOpenTemplates}
+          title="Browse Sample Templates"
+        >
+          <div className="w-8 h-8 rounded-lg bg-red-600 flex items-center justify-center text-white shadow-xs">
             <Zap className="w-5 h-5" />
           </div>
           <div className="hidden lg:block">
-            <div className="font-bold text-sm tracking-tight text-white leading-none">
+            <div className="font-bold text-sm tracking-tight text-slate-900 leading-none">
               PowerLine Designer
             </div>
-            <div className="text-[10px] text-slate-400 font-mono tracking-wide leading-tight">
+            <div className="text-[10px] text-slate-500 font-mono tracking-wide leading-tight mt-0.5">
               ELECTRICAL CAD v2.8
             </div>
           </div>
         </div>
 
-        <div className="h-6 w-px bg-slate-800 hidden md:block" />
+        <div className="h-6 w-px bg-slate-200 hidden md:block" />
 
         {/* Project Setup Button with Application & PO badges */}
         <button
           onClick={onOpenProjectSetup}
-          className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-red-600/15 hover:bg-red-600/25 border border-red-500/40 text-left transition-colors max-w-[240px]"
+          className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 border border-red-200 text-left transition-colors max-w-[240px]"
           title="Configure Application No., PO No., Drawing Name, Location, Agency & CCC"
         >
-          <Building2 className="w-4 h-4 text-red-400 shrink-0" />
+          <Building2 className="w-4 h-4 text-red-600 shrink-0" />
           <div className="min-w-0 flex flex-col">
             <div className="flex items-center gap-1.5 leading-tight">
-              <span className="text-xs font-bold text-white truncate">
+              <span className="text-xs font-bold text-slate-900 truncate">
                 {project.metadata.title || project.title || 'Project Setup'}
               </span>
-              <span className="text-[9px] bg-red-950 text-red-300 font-semibold px-1 rounded uppercase shrink-0">
+              <span className="text-[9px] bg-red-100 text-red-800 font-bold px-1 rounded uppercase shrink-0 border border-red-200">
                 SETUP
               </span>
             </div>
-            <div className="text-[10px] text-slate-400 font-mono truncate hidden sm:block">
+            <div className="text-[10px] text-slate-500 font-mono truncate hidden sm:block">
               App: {project.metadata.applicationNo || 'N/A'} · PO: {project.metadata.poNumber || 'N/A'}
             </div>
           </div>
@@ -157,21 +161,21 @@ export const TopBar: React.FC<TopBarProps> = ({
         <div className="relative">
           <button
             onClick={() => setShowPageSizeMenu(!showPageSizeMenu)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-sky-950/70 hover:bg-sky-900/80 text-xs font-semibold text-sky-200 border border-sky-600/60 transition-colors"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-sky-50 hover:bg-sky-100 text-xs font-semibold text-sky-800 border border-sky-200 transition-colors"
             title="Select Page Size (Canvas and Map are permanently locked 1:1 to this size)"
           >
-            <FileText className="w-3.5 h-3.5 text-sky-400" />
+            <FileText className="w-3.5 h-3.5 text-sky-600" />
             <span className="font-bold">{currentPageDef.shortLabel}</span>
-            <span className="text-[9px] bg-sky-900 text-sky-200 font-mono px-1 rounded border border-sky-700/60 hidden xl:inline">
+            <span className="text-[9px] bg-sky-100 text-sky-800 font-mono font-bold px-1 rounded border border-sky-300 hidden xl:inline">
               1:1 LOCKED
             </span>
           </button>
 
           {showPageSizeMenu && (
-            <div className="absolute left-0 mt-2 w-72 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-2 z-50 text-xs animate-in fade-in slide-in-from-top-2">
-              <div className="text-[10px] font-bold text-slate-400 uppercase px-2 py-1 border-b border-slate-800 mb-1 flex items-center justify-between">
+            <div className="absolute left-0 mt-2 w-72 bg-white border border-slate-200 rounded-xl shadow-2xl p-2 z-50 text-xs animate-in fade-in slide-in-from-top-2">
+              <div className="text-[10px] font-bold text-slate-500 uppercase px-2 py-1 border-b border-slate-100 mb-1 flex items-center justify-between">
                 <span>Select Page Size</span>
-                <span className="text-emerald-400 font-mono">1:1 Canvas Lock</span>
+                <span className="text-emerald-700 font-mono font-bold">1:1 Canvas Lock</span>
               </div>
               <div className="space-y-1">
                 {ALL_PAGE_SIZES.map((p) => (
@@ -184,7 +188,7 @@ export const TopBar: React.FC<TopBarProps> = ({
                     className={`w-full text-left p-2 rounded-lg transition-colors flex flex-col ${
                       (project.metadata.sheetSize || 'A4') === p.id
                         ? 'bg-sky-600 text-white font-bold'
-                        : 'hover:bg-slate-800 text-slate-200'
+                        : 'hover:bg-slate-100 text-slate-800'
                     }`}
                   >
                     <div className="flex items-center justify-between">
@@ -202,12 +206,12 @@ export const TopBar: React.FC<TopBarProps> = ({
         {/* My Saved Drawings (LocalStorage Catalog) */}
         <button
           onClick={onOpenSavedProjects}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 border border-slate-700 transition-colors"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-xs font-semibold text-slate-700 border border-slate-200 transition-colors"
           title="Manage Saved Drawings in Local Storage"
         >
-          <HardDrive className="w-3.5 h-3.5 text-emerald-400" />
+          <HardDrive className="w-3.5 h-3.5 text-emerald-600" />
           <span className="hidden sm:inline">My Drawings</span>
-          <span className="bg-emerald-950 text-emerald-300 text-[10px] font-mono font-bold px-1.5 py-0.2 rounded-full border border-emerald-800/60">
+          <span className="bg-emerald-100 text-emerald-800 text-[10px] font-mono font-bold px-1.5 py-0.2 rounded-full border border-emerald-300">
             {savedProjectsCount}
           </span>
         </button>
@@ -218,21 +222,21 @@ export const TopBar: React.FC<TopBarProps> = ({
         {/* Templates Picker */}
         <button
           onClick={onOpenTemplates}
-          className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 transition-colors"
+          className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-xs font-semibold text-slate-700 border border-slate-200 transition-colors"
           title="Browse real-world sample drawings & starter templates"
         >
-          <FolderOpen className="w-3.5 h-3.5 text-amber-400" />
+          <FolderOpen className="w-3.5 h-3.5 text-amber-600" />
           <span className="hidden md:inline">Templates</span>
         </button>
 
-        <div className="h-5 w-px bg-slate-800 mx-0.5 hidden sm:block" />
+        <div className="h-5 w-px bg-slate-200 mx-0.5 hidden sm:block" />
 
         {/* Undo / Redo */}
-        <div className="flex items-center bg-slate-800/80 rounded-lg p-0.5">
+        <div className="flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200">
           <button
             onClick={onUndo}
             disabled={!canUndo}
-            className="p-1.5 rounded-md text-slate-300 hover:text-white hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-transparent"
+            className="p-1.5 rounded-md text-slate-700 hover:text-slate-900 hover:bg-white disabled:opacity-40 disabled:hover:bg-transparent"
             title="Undo (Ctrl+Z)"
           >
             <Undo2 className="w-4 h-4" />
@@ -240,7 +244,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           <button
             onClick={onRedo}
             disabled={!canRedo}
-            className="p-1.5 rounded-md text-slate-300 hover:text-white hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-transparent"
+            className="p-1.5 rounded-md text-slate-700 hover:text-slate-900 hover:bg-white disabled:opacity-40 disabled:hover:bg-transparent"
             title="Redo (Ctrl+Y)"
           >
             <Redo2 className="w-4 h-4" />
@@ -251,20 +255,20 @@ export const TopBar: React.FC<TopBarProps> = ({
         <button
           onClick={onDeleteSelected}
           disabled={!hasSelection}
-          className="p-2 rounded-lg text-slate-400 hover:text-red-400 hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-400 transition-colors"
+          className="p-2 rounded-lg text-slate-500 hover:text-red-600 hover:bg-red-50 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
           title="Delete Selected Items (Del / Backspace)"
         >
           <Trash2 className="w-4 h-4" />
         </button>
 
-        <div className="h-5 w-px bg-slate-800 mx-0.5 hidden sm:block" />
+        <div className="h-5 w-px bg-slate-200 mx-0.5 hidden sm:block" />
 
         {/* Grid & Snap Controls */}
-        <div className="flex items-center bg-slate-800/80 rounded-lg p-0.5">
+        <div className="flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200">
           <button
             onClick={onToggleGrid}
             className={`p-1.5 rounded-md text-xs flex items-center gap-1 ${
-              showGrid ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200'
+              showGrid ? 'bg-white text-slate-900 font-bold shadow-xs' : 'text-slate-500 hover:text-slate-800'
             }`}
             title="Toggle CAD Drafting Grid (G)"
           >
@@ -276,7 +280,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           {showGrid && (
             <button
               onClick={onToggleGridType}
-              className="px-1.5 py-1 text-[10px] font-mono text-slate-400 hover:text-white"
+              className="px-1.5 py-1 text-[10px] font-mono text-slate-500 hover:text-slate-900"
               title="Switch Grid Mode (Dots / Mesh Lines)"
             >
               ⇄
@@ -285,7 +289,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           <button
             onClick={onToggleSnap}
             className={`px-2 py-1 rounded-md text-[11px] font-mono font-medium ${
-              snapEnabled ? 'bg-emerald-900/60 text-emerald-300' : 'text-slate-400 hover:text-slate-200'
+              snapEnabled ? 'bg-emerald-100 text-emerald-800 font-bold' : 'text-slate-500 hover:text-slate-800'
             }`}
             title="Toggle 20px Grid Snap"
           >
@@ -297,28 +301,28 @@ export const TopBar: React.FC<TopBarProps> = ({
         <div className="relative">
           <button
             onClick={() => setShowMapMenu(!showMapMenu)}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
               showMap
-                ? 'bg-sky-900/60 text-sky-200 border border-sky-600/70 shadow'
-                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                ? 'bg-sky-50 text-sky-800 border border-sky-300 shadow-xs'
+                : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
             }`}
             title="GIS Map Underlay Settings"
           >
-            <Map className="w-3.5 h-3.5 text-sky-400" />
+            <Map className="w-3.5 h-3.5 text-sky-600" />
             <span className="hidden sm:inline">{showMap ? 'Map ON' : 'Map Underlay'}</span>
           </button>
 
           {showMapMenu && (
-            <div className="absolute right-0 mt-2 w-72 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-3.5 z-50 text-slate-200 text-xs">
-              <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-slate-800">
-                <span className="font-bold flex items-center gap-1.5">
-                  <Map className="w-4 h-4 text-sky-400" />
+            <div className="absolute right-0 mt-2 w-72 bg-white border border-slate-200 rounded-2xl shadow-2xl p-3.5 z-50 text-slate-800 text-xs">
+              <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-slate-100">
+                <span className="font-bold flex items-center gap-1.5 text-slate-900">
+                  <Map className="w-4 h-4 text-sky-600" />
                   <span>GIS Map Configuration</span>
                 </span>
                 <button
                   onClick={onToggleMap}
                   className={`text-[11px] px-2.5 py-0.5 rounded font-mono font-bold ${
-                    showMap ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'
+                    showMap ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600'
                   }`}
                 >
                   {showMap ? 'ACTIVE' : 'DISABLED'}
@@ -327,12 +331,12 @@ export const TopBar: React.FC<TopBarProps> = ({
 
               {/* Map Layer Type */}
               <div className="mb-3">
-                <label className="text-[11px] text-slate-400 block mb-1 font-semibold">Map Imagery</label>
-                <div className="grid grid-cols-2 gap-1 p-1 bg-slate-950 rounded-xl border border-slate-800">
+                <label className="text-[11px] text-slate-500 block mb-1 font-semibold">Map Imagery</label>
+                <div className="grid grid-cols-2 gap-1 p-1 bg-slate-50 rounded-xl border border-slate-200">
                   <button
                     onClick={() => onMapTypeChange('satellite')}
                     className={`py-1.5 text-xs rounded-lg font-medium ${
-                      mapType === 'satellite' ? 'bg-slate-800 text-white shadow' : 'text-slate-400'
+                      mapType === 'satellite' ? 'bg-white text-slate-900 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
                     🛰️ Satellite
@@ -340,7 +344,7 @@ export const TopBar: React.FC<TopBarProps> = ({
                   <button
                     onClick={() => onMapTypeChange('roadmap')}
                     className={`py-1.5 text-xs rounded-lg font-medium ${
-                      mapType === 'roadmap' ? 'bg-slate-800 text-white shadow' : 'text-slate-400'
+                      mapType === 'roadmap' ? 'bg-white text-slate-900 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
                     🗺️ Road Map
@@ -348,7 +352,7 @@ export const TopBar: React.FC<TopBarProps> = ({
                   <button
                     onClick={() => onMapTypeChange('osm')}
                     className={`py-1.5 text-xs rounded-lg font-medium ${
-                      mapType === 'osm' ? 'bg-slate-800 text-white shadow' : 'text-slate-400'
+                      mapType === 'osm' ? 'bg-white text-slate-900 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
                     🌐 OpenStreetMap
@@ -356,7 +360,7 @@ export const TopBar: React.FC<TopBarProps> = ({
                   <button
                     onClick={() => onMapTypeChange('terrain')}
                     className={`py-1.5 text-xs rounded-lg font-medium ${
-                      mapType === 'terrain' ? 'bg-slate-800 text-white shadow' : 'text-slate-400'
+                      mapType === 'terrain' ? 'bg-white text-slate-900 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
                     🏔️ Topo Terrain
@@ -367,14 +371,14 @@ export const TopBar: React.FC<TopBarProps> = ({
               {/* Layer Position */}
               {onToggleMapLayerPosition && (
                 <div className="mb-3">
-                  <label className="text-[11px] text-slate-400 block mb-1 font-semibold">
+                  <label className="text-[11px] text-slate-500 block mb-1 font-semibold">
                     Layer Placement
                   </label>
-                  <div className="grid grid-cols-2 gap-1 p-1 bg-slate-950 rounded-xl border border-slate-800 text-[11px]">
+                  <div className="grid grid-cols-2 gap-1 p-1 bg-slate-50 rounded-xl border border-slate-200 text-[11px]">
                     <button
                       onClick={() => mapLayerPosition !== 'underlay' && onToggleMapLayerPosition()}
                       className={`py-1 rounded-lg font-medium ${
-                        mapLayerPosition === 'underlay' ? 'bg-slate-800 text-white shadow' : 'text-slate-400'
+                        mapLayerPosition === 'underlay' ? 'bg-white text-slate-900 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900'
                       }`}
                     >
                       Under CAD Lines
@@ -382,7 +386,7 @@ export const TopBar: React.FC<TopBarProps> = ({
                     <button
                       onClick={() => mapLayerPosition !== 'overlay' && onToggleMapLayerPosition()}
                       className={`py-1 rounded-lg font-medium ${
-                        mapLayerPosition === 'overlay' ? 'bg-slate-800 text-white shadow' : 'text-slate-400'
+                        mapLayerPosition === 'overlay' ? 'bg-white text-slate-900 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900'
                       }`}
                     >
                       Over CAD Lines
@@ -393,9 +397,9 @@ export const TopBar: React.FC<TopBarProps> = ({
 
               {/* Opacity Slider */}
               <div>
-                <div className="flex justify-between text-[11px] text-slate-400 mb-1">
+                <div className="flex justify-between text-[11px] text-slate-500 mb-1">
                   <span>Transparency / Opacity</span>
-                  <span className="font-mono font-bold text-sky-400">{mapOpacity}%</span>
+                  <span className="font-mono font-bold text-sky-700">{mapOpacity}%</span>
                 </div>
                 <input
                   type="range"
@@ -403,7 +407,7 @@ export const TopBar: React.FC<TopBarProps> = ({
                   max="100"
                   value={mapOpacity}
                   onChange={(e) => onMapOpacityChange(Number(e.target.value))}
-                  className="w-full accent-sky-500 cursor-pointer"
+                  className="w-full accent-sky-600 cursor-pointer"
                 />
               </div>
             </div>
@@ -413,7 +417,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         {/* Keyboard Shortcuts Dialog Button */}
         <button
           onClick={onOpenShortcuts}
-          className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+          className="p-2 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors"
           title="CAD Keyboard Shortcuts (?)"
         >
           <Keyboard className="w-4 h-4" />
@@ -422,10 +426,10 @@ export const TopBar: React.FC<TopBarProps> = ({
         {/* Canvas Dark/Light Toggle */}
         <button
           onClick={onToggleDarkCanvas}
-          className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+          className="p-2 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors"
           title="Toggle Canvas Theme (White Paper / Dark Slate)"
         >
-          {isDarkCanvas ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4" />}
+          {isDarkCanvas ? <Sun className="w-4 h-4 text-amber-500" /> : <Moon className="w-4 h-4 text-slate-600" />}
         </button>
       </div>
 
@@ -435,7 +439,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         <button
           onClick={onSave}
           disabled={isSaving}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-xs font-semibold text-white shadow-md shadow-emerald-950 transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white shadow-xs transition-colors"
           title="Save Drawing to Browser Local Storage (Ctrl+S)"
         >
           <Save className="w-3.5 h-3.5 text-white" />
@@ -445,7 +449,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         {/* Export A4 PDF */}
         <button
           onClick={onOpenExport}
-          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-xs font-semibold text-white shadow-md shadow-red-950 transition-colors whitespace-nowrap"
+          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-xs font-semibold text-white shadow-xs transition-colors whitespace-nowrap"
           title="Export A4 Landscape PDF with Title Block, Index & BOQ Schedule"
         >
           <Download className="w-4 h-4" />
