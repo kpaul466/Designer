@@ -1,10 +1,10 @@
 # Development Progress — PowerLine Designer
 
 ## Project Status
-- **Current Phase**: All User Requirements Implemented & Verified
+- **Current Phase**: Canvas / Map Layout Recheck Complete
 - **Overall Completion**: 100%
-- **Build Status**: Passing (zero TypeScript/Lint errors, production build tested)
-- **Last Updated**: 2026-10-05
+- **Build Status**: TypeScript and production build passing
+- **Last Updated**: 2026-10-06
 
 ---
 
@@ -108,3 +108,21 @@
 - [x] Mandatory Administrator Approval: newly registered users have `pending_approval` status and cannot use the software until approved.
 - [x] Admin Approval Management Modal: review, approve, or reject user registrations.
 - [x] Demo accounts pre-populated on the login screen for instant evaluation.
+
+## Phase 11 — Canvas / Map Layout Recheck
+- [x] Fixed the map visibility hook-order error that could break rendering when enabling the layer.
+- [x] Prevented dark-canvas sheet fill from darkening map imagery; map mode now uses a light, capped sheet tint with dedicated tint steps.
+- [x] Re-centered tile imagery on the selected geographic coordinate and removed an unnecessary CORS mode from tile images.
+- [x] Made map pointer-event classes explicit so the underlay does not block drawing interactions.
+- [x] Fit and center the drawing sheet on initial load and re-fit after page-size changes.
+- [x] Added a manual continuous basemap zoom slider in the canvas controls.
+- [x] Removed the India-only geocoding restriction and guarded live search against stale requests, timeouts, and network failures.
+- [x] Kept API-key-free basemaps per user preference; Esri World Imagery is the default, with CARTO Voyager, OpenStreetMap, and OpenTopoMap alternatives and visible attribution.
+- [x] Verified the map toggle renders without a React hook error, slider changes the zoom level, live search returns London, all 49 satellite tiles load, and map/sheet bounds align in dark-canvas mode.
+- [x] Verified a Corridor page size change re-fits the complete sheet inside the workspace without horizontal overflow.
+- [x] Passed `npm run lint` and `npm run build`.
+
+## Phase 12 — GitHub Pages Deployment
+- [x] Added a GitHub Actions workflow that installs dependencies with Bun, builds the Vite app, and deploys the artifact to GitHub Pages on pushes to `main` or `master`.
+- [x] Added a manual workflow-dispatch option and documented the GitHub Pages setup steps.
+- [ ] Verify the workflow on GitHub after pushing the branch and enabling GitHub Actions as the Pages source.

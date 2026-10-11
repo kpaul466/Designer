@@ -7,11 +7,163 @@
 
   body {
     font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    color-scheme: light;
   }
 
   code, kbd, samp, pre {
     font-family: 'JetBrains Mono', monospace;
   }
+}
+
+/* Keep application chrome, panels, menus, and dialogs on a consistent light palette. */
+.app-theme-light {
+  color: #1e293b !important;
+  background-color: #f1f5f9 !important;
+}
+
+.app-theme-light [class*="bg-slate-950"] {
+  background-color: #f8fafc !important;
+}
+
+.app-theme-light [class*="bg-slate-950/"] {
+  background-color: rgba(226, 232, 240, 0.82) !important;
+}
+
+.app-theme-light [class*="bg-slate-900"] {
+  background-color: #ffffff !important;
+}
+
+.app-theme-light [class*="bg-slate-900/"] {
+  background-color: rgba(255, 255, 255, 0.94) !important;
+}
+
+.app-theme-light [class*="bg-slate-800"] {
+  background-color: #f8fafc !important;
+}
+
+.app-theme-light [class*="bg-slate-800/"] {
+  background-color: rgba(248, 250, 252, 0.92) !important;
+}
+
+.app-theme-light [class*="bg-slate-700"] {
+  background-color: #f1f5f9 !important;
+}
+
+.app-theme-light [class*="bg-slate-600"] {
+  background-color: #e2e8f0 !important;
+}
+
+.app-theme-light [class*="bg-red-950"] {
+  background-color: #fef2f2 !important;
+}
+
+.app-theme-light [class*="bg-amber-950"] {
+  background-color: #fffbeb !important;
+}
+
+.app-theme-light [class*="bg-sky-950"] {
+  background-color: #f0f9ff !important;
+}
+
+.app-theme-light [class*="bg-emerald-950"] {
+  background-color: #ecfdf5 !important;
+}
+
+.app-theme-light [class*="text-slate-100"] {
+  color: #0f172a !important;
+}
+
+.app-theme-light [class*="text-slate-200"] {
+  color: #1e293b !important;
+}
+
+.app-theme-light [class*="text-slate-300"] {
+  color: #334155 !important;
+}
+
+.app-theme-light [class*="text-slate-400"] {
+  color: #64748b !important;
+}
+
+.app-theme-light [class*="text-amber-200"],
+.app-theme-light [class*="text-amber-300"],
+.app-theme-light [class*="text-amber-400"],
+.app-theme-light [class*="text-yellow-200"],
+.app-theme-light [class*="text-yellow-300"],
+.app-theme-light [class*="text-yellow-400"] {
+  color: #92400e !important;
+}
+
+.app-theme-light [class*="text-sky-200"],
+.app-theme-light [class*="text-sky-300"],
+.app-theme-light [class*="text-sky-400"],
+.app-theme-light [class*="text-blue-200"],
+.app-theme-light [class*="text-blue-300"],
+.app-theme-light [class*="text-blue-400"],
+.app-theme-light [class*="text-cyan-200"],
+.app-theme-light [class*="text-cyan-300"],
+.app-theme-light [class*="text-cyan-400"] {
+  color: #075985 !important;
+}
+
+.app-theme-light [class*="text-emerald-200"],
+.app-theme-light [class*="text-emerald-300"],
+.app-theme-light [class*="text-emerald-400"],
+.app-theme-light [class*="text-green-200"],
+.app-theme-light [class*="text-green-300"],
+.app-theme-light [class*="text-green-400"] {
+  color: #047857 !important;
+}
+
+.app-theme-light [class*="text-red-200"],
+.app-theme-light [class*="text-red-300"],
+.app-theme-light [class*="text-red-400"],
+.app-theme-light [class*="text-rose-200"],
+.app-theme-light [class*="text-rose-300"],
+.app-theme-light [class*="text-rose-400"] {
+  color: #b91c1c !important;
+}
+
+.app-theme-light [class*="text-white"]:not([class*="bg-red-500"]):not([class*="bg-red-600"]):not([class*="bg-amber-500"]):not([class*="bg-amber-600"]):not([class*="bg-sky-500"]):not([class*="bg-sky-600"]):not([class*="bg-emerald-500"]):not([class*="bg-emerald-600"]):not([class*="bg-blue-500"]):not([class*="bg-blue-600"]):not([class*="bg-indigo-500"]):not([class*="bg-indigo-600"]):not([class*="bg-rose-500"]):not([class*="bg-rose-600"]) {
+  color: #0f172a !important;
+}
+
+.app-theme-light :is([class*="bg-red-500"], [class*="bg-red-600"], [class*="bg-amber-500"], [class*="bg-amber-600"], [class*="bg-sky-500"], [class*="bg-sky-600"], [class*="bg-emerald-500"], [class*="bg-emerald-600"], [class*="bg-blue-500"], [class*="bg-blue-600"], [class*="bg-indigo-500"], [class*="bg-indigo-600"], [class*="bg-rose-500"], [class*="bg-rose-600"]) [class*="text-white"] {
+  color: #ffffff !important;
+}
+
+.app-theme-light [class*="border-slate-800"],
+.app-theme-light [class*="border-slate-700"],
+.app-theme-light [class*="border-slate-600"] {
+  border-color: #e2e8f0 !important;
+}
+
+.app-theme-light [class*="border-red-800"] {
+  border-color: #fecaca !important;
+}
+
+.app-theme-light [class*="border-amber-800"] {
+  border-color: #fde68a !important;
+}
+
+.app-theme-light [class*="border-sky-800"] {
+  border-color: #bae6fd !important;
+}
+
+.app-theme-light [class*="border-emerald-800"] {
+  border-color: #a7f3d0 !important;
+}
+
+.app-theme-light [class*="hover\\:bg-slate-800"]:hover,
+.app-theme-light [class*="hover\\:bg-slate-700"]:hover,
+.app-theme-light [class*="hover\\:bg-slate-600"]:hover {
+  background-color: #e2e8f0 !important;
+}
+
+.app-theme-light input,
+.app-theme-light select,
+.app-theme-light textarea {
+  color-scheme: light;
 }
 
 /* Custom scrollbars for high-density tool panels */
@@ -20,14 +172,14 @@
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.6);
+  background: #f1f5f9;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(100, 116, 139, 0.4);
+  background: #cbd5e1;
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.6);
+  background: #94a3b8;
 }
 
 /* Print Sheet Styling for true A4 Landscape (297mm x 210mm) */
@@ -41,16 +193,20 @@
     color: black !important;
     overflow: visible !important;
   }
-  .no-print {
-    display: none !important;
+  body * {
+    visibility: hidden !important;
   }
-  .print-only {
-    display: block !important;
+  .print-sheet,
+  .print-sheet * {
+    visibility: visible !important;
   }
   .print-sheet {
+    position: fixed !important;
+    inset: 0 auto auto 0 !important;
     width: 297mm !important;
     height: 210mm !important;
-    page-break-after: always;
+    zoom: 1 !important;
+    page-break-after: avoid !important;
     box-shadow: none !important;
     margin: 0 !important;
     padding: 0 !important;

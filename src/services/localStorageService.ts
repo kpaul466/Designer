@@ -8,10 +8,99 @@
  */
 
 import { DrawingProject } from '../types/electrical';
-import { BLANK_TEMPLATES } from '../templates/sampleBlueprints';
 
 export const STORAGE_KEY_ACTIVE = 'powerline_designer_active_project';
 export const STORAGE_KEY_CATALOG = 'powerline_designer_saved_projects_catalog';
+export const STORAGE_KEY_TEMPLATES = 'powerline_designer_templates';
+
+export function createBlankDrawing(): DrawingProject {
+  const now = new Date().toISOString();
+  return {
+    id: `project-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    title: 'New Drawing',
+    version: 1,
+    createdAt: now,
+    updatedAt: now,
+    metadata: {
+      title: '',
+      drawingNo: '',
+      applicationNo: '',
+      poNumber: '',
+      agencyName: '',
+      cccName: '',
+      divisionName: '',
+      workOrderNo: '',
+      projectName: '',
+      applicantName: '',
+      applicantAddress: '',
+      applicantPhone: '',
+      location: '',
+      coordinates: '',
+      subDivision: '',
+      preparedBy: '',
+      checkedBy: '',
+      approvedBy: '',
+      preparedByOffice: '',
+      checkedByOffice: '',
+      approvedByOffice: '',
+      date: new Date().toLocaleDateString('en-GB'),
+      revision: '',
+      scale: '',
+      sheetSize: 'A4',
+      orientation: 'landscape',
+    },
+    nodes: [],
+    edges: [],
+    stays: [],
+    crossings: [],
+    annotations: [],
+    mapRoadOutlines: [],
+    customBoqOverrides: {},
+  };
+}
+
+export function getSavedTemplates(): DrawingProject[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_TEMPLATES);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.every((template) => template && typeof template.id === 'string')) {
+      return parsed as DrawingProject[];
+    }
+    throw new Error('Saved template library has an invalid format.');
+  } catch (error) {
+    console.error('Failed to load saved templates:', error);
+    return [];
+  }
+}
+
+export function saveProjectAsTemplate(project: DrawingProject): { success: boolean; message: string } {
+  try {
+    const templates = getSavedTemplates();
+    const template: DrawingProject = {
+      ...project,
+      id: `template-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    localStorage.setItem(STORAGE_KEY_TEMPLATES, JSON.stringify([template, ...templates]));
+    return { success: true, message: `Saved "${project.title}" as a template.` };
+  } catch (error) {
+    console.error('Failed to save drawing as template:', error);
+    return { success: false, message: 'Could not save template. Browser storage may be full or unavailable.' };
+  }
+}
+
+export function deleteSavedTemplate(templateId: string): { success: boolean; message: string } {
+  try {
+    const templates = getSavedTemplates().filter((template) => template.id !== templateId);
+    localStorage.setItem(STORAGE_KEY_TEMPLATES, JSON.stringify(templates));
+    return { success: true, message: 'Template deleted.' };
+  } catch (error) {
+    console.error('Failed to delete saved template:', error);
+    return { success: false, message: 'Could not delete template.' };
+  }
+}
 
 /**
  * Load the active project from localStorage or return default template
@@ -28,7 +117,7 @@ export function loadActiveProject(): DrawingProject {
   } catch (e) {
     console.error('Failed to load active project from localStorage:', e);
   }
-  return BLANK_TEMPLATES[0];
+  return createBlankDrawing();
 }
 
 /**

@@ -4,20 +4,24 @@
  * - Canvas is fixed in size after selecting page size (Page size and canvas size are strictly identical 1:1)
  * - Canvas cannot zoom out less than the viewing area (minZoom = fitZoom to viewport)
  * - When zoomed in, it can be dragged smoothly by the Hand Tool (H / Spacebar / Middle-click)
- * - Map size and canvas size are strictly identical (Map renders inside canvas sheet bounds)
- * - Real-time Google Maps zoom with continuous sub-tile scaling (Levels 12 to 20)
+ * - Map viewport matches the fixed-size page exactly
+ * - Real-time basemap zoom with continuous sub-tile scaling (Levels 12 to 20)
  * - Area / Location search with instant navigation and "Place Canvas Here" action
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActiveTool,
+  AnnotationItem,
   CanvasBounds,
   ConductorEdge,
   CustomToolDefinition,
   DrawingProject,
   ElectricalNode,
   GeoLocation,
+  MapFeatureSelection,
+  MapRoadCandidate,
+  MapRoadOutline,
   SelectedItem,
   StayItem,
   SheetSizeType,
@@ -37,7 +41,10 @@ import {
 } from '../../constants/pageSizes';
 import {
   Crosshair,
+  Eye,
+  EyeOff,
   FileText,
+  GripVertical,
   Hand,
   Layers,
   Map,
@@ -57,15 +64,17 @@ interface DrawingCanvasProps {
   isDarkCanvas: boolean;
   selectedEntities: SelectedItem[];
   onSelectEntities: (entities: SelectedItem[]) => void;
-  onUpdateProject: (updated: DrawingProject) => void;
+  onUpdateProject: (updated: DrawingProject, pushHistory?: boolean) => void;
   showMap: boolean;
   mapOpacity: number;
-  mapType: 'satellite' | 'roadmap' | 'terrain' | 'osm';
   mapLocked: boolean;
+  mapFeatures: MapFeatureSelection;
+  onRoadFeaturesChange: (roads: MapRoadCandidate[]) => void;
   mapLayerPosition?: 'underlay' | 'overlay';
-  onMapTypeChange?: (type: 'satellite' | 'roadmap' | 'terrain' | 'osm') => void;
   onMapOpacityChange?: (opacity: number) => void;
   onToggleMap?: () => void;
+  onToggleMapLock?: () => void;
+  onMapCenterChange?: (lat: number, lng: number) => void;
   onSelectLocation?: (loc: GeoLocation) => void;
   onCursorMove?: (x: number, y: number) => void;
   zoom: number;
@@ -96,12 +105,14 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   onUpdateProject,
   showMap,
   mapOpacity,
-  mapType,
   mapLocked,
+  mapFeatures,
+  onRoadFeaturesChange,
   mapLayerPosition = 'underlay',
-  onMapTypeChange,
   onMapOpacityChange,
   onToggleMap,
+  onToggleMapLock,
+  onMapCenterChange,
   onSelectLocation,
   onCursorMove,
   zoom,
@@ -113,14 +124,22 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  const hasInitialViewFitted = useRef(false);
 
   // Requirement: Canvas size is FIXED to selected page size (1:1 lock)
   const currentSheetSize: SheetSizeType = project.metadata.sheetSize || 'A4';
   const currentPageDef = PAGE_SIZE_DEFINITIONS[currentSheetSize] || PAGE_SIZE_DEFINITIONS.A4;
 
-  const canvasBounds: CanvasBounds = project.canvasBounds && project.canvasBounds.width === currentPageDef.width
-    ? project.canvasBounds
-    : getCanvasBoundsForPageSize(currentSheetSize, project.canvasBounds);
+  const canvasBounds: CanvasBounds =
+    project.canvasBounds &&
+    project.canvasBounds.width === currentPageDef.width &&
+    project.canvasBounds.height === currentPageDef.height
+      ? project.canvasBounds
+      : getCanvasBoundsForPageSize(currentSheetSize, project.canvasBounds);
+  const previousSheetSize = useRef({
+    width: canvasBounds.width,
+    height: canvasBounds.height,
+  });
 
   // Viewport tracking for minimum zoom calculation
   const [viewportSize, setViewportSize] = useState({ width: 1200, height: 800 });
@@ -182,13 +201,55 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     }
   }, [minZoom, zoom, viewportSize, canvasBounds, onZoomChange, onPanChange]);
 
-  // Google Maps Base Zoom Level State
+  // Basemap tile zoom level
   const [mapZoomLevel, setMapZoomLevel] = useState<number>(project.mapSettings?.zoomLevel || 16);
+  useEffect(() => {
+    setMapZoomLevel(project.mapSettings?.zoomLevel || 16);
+  }, [project.id, project.mapSettings?.zoomLevel]);
+
+  const updateMapZoomLevel = useCallback((level: number) => {
+    const zoomLevel = Math.min(Math.max(level, 12), 19);
+    setMapZoomLevel(zoomLevel);
+    onUpdateProject({
+      ...project,
+      mapSettings: {
+        visible: showMap,
+        opacity: mapOpacity,
+        mapType: 'osm',
+        zoomLevel,
+        scale: project.mapSettings?.scale ?? 1,
+        sizeMode: project.mapSettings?.sizeMode ?? 'canvas_fit',
+        isLocked: mapLocked,
+        layerPosition: mapLayerPosition,
+        features: mapFeatures,
+        pinnedPlaces: project.mapSettings?.pinnedPlaces,
+        activePlace: project.mapSettings?.activePlace ?? null,
+      },
+      updatedAt: new Date().toISOString(),
+    }, false);
+  }, [mapFeatures, mapLayerPosition, mapLocked, mapOpacity, onUpdateProject, project, showMap]);
+
   const [showPageSizeDropdown, setShowPageSizeDropdown] = useState<boolean>(false);
+  const pageSizeDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showPageSizeDropdown) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (pageSizeDropdownRef.current && !pageSizeDropdownRef.current.contains(event.target as Node)) {
+        setShowPageSizeDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showPageSizeDropdown]);
 
   // Moving Canvas on Map State
   const [isMovingCanvasMode, setIsMovingCanvasMode] = useState<boolean>(false);
   const [moveWithElements, setMoveWithElements] = useState<boolean>(true);
+  const [isFloatingToolbarVisible, setIsFloatingToolbarVisible] = useState(true);
+  const [floatingToolbarPosition, setFloatingToolbarPosition] = useState<{ x: number; y: number } | null>(null);
+  const floatingToolbarRef = useRef<HTMLDivElement>(null);
+  const floatingToolbarDragOffset = useRef<{ x: number; y: number } | null>(null);
   const [isDraggingCanvas, setIsDraggingCanvas] = useState<boolean>(false);
   const [canvasDragStart, setCanvasDragStart] = useState<{ mouseX: number; mouseY: number; originX: number; originY: number }>({
     mouseX: 0,
@@ -209,6 +270,10 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
 
   // Dragging Nodes State
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
+  const [draggingAnnotationId, setDraggingAnnotationId] = useState<string | null>(null);
+  const [isDrawingRoad, setIsDrawingRoad] = useState(false);
+  const [roadDraftPoints, setRoadDraftPoints] = useState<Array<{ x: number; y: number }>>([]);
+  const [roadStartPoint, setRoadStartPoint] = useState<{ x: number; y: number } | null>(null);
   const [dragInitialPositions, setDragInitialPositions] = useState<{ [id: string]: { x: number; y: number } }>({});
   const [dragStartCursor, setDragStartCursor] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
@@ -244,6 +309,13 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
       e.preventDefault();
 
       if (e.ctrlKey || e.metaKey) {
+        if (showMap && !mapLocked) {
+          setMapZoomLevel((current) =>
+            Math.min(Math.max(current + (e.deltaY < 0 ? 1 : -1), 12), 19)
+          );
+          return;
+        }
+
         // Zooming with Ctrl + Scroll
         const zoomFactor = e.deltaY < 0 ? 1.15 : 0.87;
         const targetZoom = zoom * zoomFactor;
@@ -267,8 +339,8 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
           onZoomChange(newZoom);
           onPanChange(newPanX, newPanY);
         }
-      } else {
-        // Normal scroll: pan canvas viewport
+      } else if (isZoomedIn) {
+        // Keep the page fixed at fit; allow viewport panning only when zoomed in.
         onPanChange(panX - e.deltaX, panY - e.deltaY);
       }
     };
@@ -277,7 +349,18 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     return () => {
       container.removeEventListener('wheel', handleNativeWheel);
     };
-  }, [zoom, minZoom, panX, panY, canvasBounds, onZoomChange, onPanChange]);
+  }, [
+    zoom,
+    minZoom,
+    panX,
+    panY,
+    canvasBounds,
+    isZoomedIn,
+    showMap,
+    mapLocked,
+    onZoomChange,
+    onPanChange,
+  ]);
 
   // Center Canvas on current viewport
   const handleCenterCanvasOnView = useCallback(() => {
@@ -306,6 +389,26 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     onPanChange(centerPanX, centerPanY);
   }, [canvasBounds, onZoomChange, onPanChange]);
 
+  useEffect(() => {
+    if (hasInitialViewFitted.current || !containerRef.current) return;
+    const { width, height } = containerRef.current.getBoundingClientRect();
+    if (width <= 0 || height <= 0) return;
+
+    handleFitToViewport();
+    hasInitialViewFitted.current = true;
+  }, [handleFitToViewport, viewportSize]);
+
+  useEffect(() => {
+    const sizeChanged =
+      previousSheetSize.current.width !== canvasBounds.width ||
+      previousSheetSize.current.height !== canvasBounds.height;
+    previousSheetSize.current = { width: canvasBounds.width, height: canvasBounds.height };
+
+    if (sizeChanged && hasInitialViewFitted.current) {
+      handleFitToViewport();
+    }
+  }, [canvasBounds.width, canvasBounds.height, handleFitToViewport]);
+
   // Handle Location Selected from Search Bar
   const handleLocationSelected = useCallback(
     (loc: GeoLocation) => {
@@ -333,7 +436,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     [handleLocationSelected, handleFitToViewport]
   );
 
-  // Page Size Change: Locks Canvas Size and Map Size 1:1 to selected Page Size
+  // Page size changes update the fixed drawing sheet dimensions.
   const handleSelectPageSize = useCallback(
     (pageSizeId: SheetSizeType) => {
       const newBounds = getCanvasBoundsForPageSize(pageSizeId, canvasBounds);
@@ -385,8 +488,10 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
 
   // Mouse Down handler
   const handleMouseDown = (e: React.MouseEvent) => {
-    // Requirement: "if zoomed in it must be draged by hand tool"
-    if (activeTool === 'pan' || isSpaceDown || e.button === 1) {
+    if (!mapLocked && e.target instanceof Element && e.target.closest('.ol-viewport')) return;
+
+    // Keep the fitted page fixed; hand-dragging is enabled after zooming in.
+    if (isZoomedIn && (activeTool === 'pan' || isSpaceDown || e.button === 1)) {
       setIsPanning(true);
       setStartPan({ x: e.clientX - panX, y: e.clientY - panY });
       return;
@@ -431,24 +536,56 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
 
     if (isLineTool && lineStartNodeId) {
       const targetNode = project.nodes.find((n) => distance(n, canvasPoint) < 25);
-      if (targetNode && targetNode.id !== lineStartNodeId) {
-        const spanDist = Math.round(distance(project.nodes.find((n) => n.id === lineStartNodeId)!, targetNode));
-        const newEdge: ConductorEdge = {
-          id: `edge-${Date.now()}`,
-          fromNodeId: lineStartNodeId,
-          toNodeId: targetNode.id,
-          type: activeTool as any,
-          spanMeters: pixelDistanceToSpanMeters(spanDist),
-          status: 'proposed',
-        };
-        onUpdateProject({
-          ...project,
-          edges: [...project.edges, newEdge],
-        });
-        setLineStartNodeId(null);
-      } else {
+      if (!targetNode) {
         setLineStartNodeId(null);
       }
+      // Node clicks finalize the conductor in handleNodeClick; keep that as the
+      // single commit path so one click cannot create duplicate conductors.
+      return;
+    }
+
+    if (activeTool === 'text_annotation') {
+      const annotation: AnnotationItem = {
+        id: `annotation-${Date.now()}`,
+        x: snapped.x,
+        y: snapped.y,
+        text: '',
+        fontSize: 18,
+        color: '#1e293b',
+      };
+      onUpdateProject({
+        ...project,
+        annotations: [...project.annotations, annotation],
+      });
+      onSelectEntities([{ type: 'annotation', id: annotation.id }]);
+      return;
+    }
+
+    if (activeTool === 'freeform_road') {
+      setIsDrawingRoad(true);
+      setRoadDraftPoints([canvasPoint]);
+      onSelectEntities([]);
+      return;
+    }
+
+    if (activeTool === 'road_segment') {
+      if (!roadStartPoint) {
+        setRoadStartPoint(snapped);
+        onSelectEntities([]);
+        return;
+      }
+      const road: MapRoadOutline = {
+        id: `manual-road-${Date.now()}`,
+        sourceId: `manual-${Date.now()}`,
+        name: 'New Road',
+        points: [roadStartPoint, snapped],
+      };
+      onUpdateProject({
+        ...project,
+        mapRoadOutlines: [...(project.mapRoadOutlines || []), road],
+      });
+      setRoadStartPoint(null);
+      onSelectEntities([{ type: 'mapRoad', id: road.id }]);
       return;
     }
 
@@ -574,6 +711,16 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     setCursorPos(canvasPoint);
     if (onCursorMove) onCursorMove(Math.round(canvasPoint.x), Math.round(canvasPoint.y));
 
+    if (isDrawingRoad) {
+      setRoadDraftPoints((points) => {
+        const lastPoint = points[points.length - 1];
+        return !lastPoint || distance(lastPoint, canvasPoint) >= 4
+          ? [...points, canvasPoint]
+          : points;
+      });
+      return;
+    }
+
     // Requirement: Dragged by hand tool when zoomed in
     if (isPanning) {
       onPanChange(e.clientX - startPan.x, e.clientY - startPan.y);
@@ -644,6 +791,26 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
       return;
     }
 
+    if (draggingAnnotationId && dragStartCursor) {
+      const deltaX = canvasPoint.x - dragStartCursor.x;
+      const deltaY = canvasPoint.y - dragStartCursor.y;
+      const origin = dragInitialPositions[draggingAnnotationId];
+      if (origin) {
+        const position = snapEnabled
+          ? snapPointToGrid({ x: origin.x + deltaX, y: origin.y + deltaY }, 20)
+          : { x: origin.x + deltaX, y: origin.y + deltaY };
+        onUpdateProject({
+          ...project,
+          annotations: project.annotations.map((annotation) =>
+            annotation.id === draggingAnnotationId
+              ? { ...annotation, x: position.x, y: position.y }
+              : annotation
+          ),
+        });
+      }
+      return;
+    }
+
     // Update Selection Marquee Box
     if (selectionBox) {
       setSelectionBox({
@@ -656,6 +823,23 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
 
   // Mouse Up handler
   const handleMouseUp = () => {
+    if (isDrawingRoad) {
+      setIsDrawingRoad(false);
+      if (roadDraftPoints.length > 1) {
+        const road: MapRoadOutline = {
+          id: `manual-road-${Date.now()}`,
+          sourceId: `manual-${Date.now()}`,
+          name: 'New Road',
+          points: roadDraftPoints,
+        };
+        onUpdateProject({
+          ...project,
+          mapRoadOutlines: [...(project.mapRoadOutlines || []), road],
+        });
+        onSelectEntities([{ type: 'mapRoad', id: road.id }]);
+      }
+      setRoadDraftPoints([]);
+    }
     if (isPanning) {
       setIsPanning(false);
     }
@@ -717,6 +901,20 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
           }
         });
 
+        project.annotations.forEach((annotation) => {
+          if (annotation.x >= minX && annotation.x <= maxX && annotation.y >= minY && annotation.y <= maxY) {
+            selectedItems.push({ type: 'annotation', id: annotation.id });
+          }
+        });
+
+        (project.mapRoadOutlines || []).forEach((road) => {
+          if (road.points.some((point) =>
+            point.x >= minX && point.x <= maxX && point.y >= minY && point.y <= maxY
+          )) {
+            selectedItems.push({ type: 'mapRoad', id: road.id });
+          }
+        });
+
         if (selectionBox.isShift) {
           const merged = [...selectedEntities];
           selectedItems.forEach((item) => {
@@ -731,6 +929,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     }
 
     setDraggingNodeId(null);
+    setDraggingAnnotationId(null);
     setDragInitialPositions({});
   };
 
@@ -811,12 +1010,33 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     }
   };
 
+  const handleAnnotationMouseDown = (event: React.MouseEvent, annotation: AnnotationItem) => {
+    event.stopPropagation();
+    if (event.button !== 0) return;
+    const point = clientToCanvas(event.clientX, event.clientY);
+    setDraggingAnnotationId(annotation.id);
+    setDragStartCursor(point);
+    setDragInitialPositions((current) => ({
+      ...current,
+      [annotation.id]: { x: annotation.x, y: annotation.y },
+    }));
+    if (event.shiftKey) {
+      onSelectEntities(
+        isSelected(annotation.id)
+          ? selectedEntities.filter((item) => item.id !== annotation.id)
+          : [...selectedEntities, { type: 'annotation', id: annotation.id }]
+      );
+    } else {
+      onSelectEntities([{ type: 'annotation', id: annotation.id }]);
+    }
+  };
+
   const lineStartNode = project.nodes.find((n) => n.id === lineStartNodeId);
 
   // Dynamic Cursor
   const getCursorStyle = () => {
     if (isPanning) return 'cursor-grabbing';
-    if (activeTool === 'pan' || isSpaceDown) return 'cursor-grab';
+    if (isZoomedIn && (activeTool === 'pan' || isSpaceDown)) return 'cursor-grab';
     if (isMovingCanvasMode) return 'cursor-move';
     if (activeTool === 'select') return 'cursor-default';
     return 'cursor-crosshair';
@@ -831,12 +1051,11 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
     >
-      {/* 1. GIS Map Layer (Underlay: Map size and Canvas size are 100% Identical) */}
+      {/* 1. GIS Map Layer (viewport matches the fixed drawing sheet) */}
       {mapLayerPosition === 'underlay' && (
         <MapUnderlay
           isVisible={showMap}
           opacity={mapOpacity}
-          mapType={mapType}
           locationName={project.metadata.location}
           geoLocation={project.geoLocation}
           zoom={zoom}
@@ -847,20 +1066,24 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
           layerPosition="underlay"
           mapZoomLevel={mapZoomLevel}
           canvasBounds={canvasBounds}
-          onMapZoomIn={() => setMapZoomLevel((prev) => Math.min(prev + 1, 19))}
-          onMapZoomOut={() => setMapZoomLevel((prev) => Math.max(prev - 1, 12))}
-          onMapZoomLevelChange={(lvl) => setMapZoomLevel(lvl)}
+          mapFeatures={mapFeatures}
+          onRoadFeaturesChange={onRoadFeaturesChange}
+          onMapZoomIn={!mapLocked ? () => updateMapZoomLevel(mapZoomLevel + 1) : undefined}
+          onMapZoomOut={!mapLocked ? () => updateMapZoomLevel(mapZoomLevel - 1) : undefined}
+          onMapZoomLevelChange={!mapLocked ? updateMapZoomLevel : undefined}
           onPlaceCanvasHere={handlePlaceCanvasAtLocation}
+          onMapCenterChange={onMapCenterChange}
         />
       )}
 
       {/* 2. SVG Vector Drawing Canvas with Fixed Sheet Boundary */}
       <svg
         ref={svgRef}
-        className="w-full h-full absolute inset-0 pointer-events-auto"
+        className={`w-full h-full absolute inset-0 ${showMap && !mapLocked ? 'pointer-events-none' : 'pointer-events-auto'}`}
         style={{
           transform: `translate(${panX}px, ${panY}px) scale(${zoom})`,
           transformOrigin: '0 0',
+          overflow: 'visible',
         }}
       >
         {/* CAD Grid Mesh */}
@@ -876,24 +1099,14 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
         <g id="cad-sheet-boundary">
           {/* Sheet Paper Surface */}
           <rect
-            x={canvasBounds.x}
-            y={canvasBounds.y}
-            width={canvasBounds.width}
-            height={canvasBounds.height}
-            fill={
-              showMap
-                ? isDarkCanvas
-                  ? '#090d16'
-                  : '#ffffff'
-                : isDarkCanvas
-                ? '#0f172a'
-                : '#ffffff'
-            }
+            x={canvasBounds.x + (showMap ? 1.25 : 0.75)}
+            y={canvasBounds.y + (showMap ? 1.25 : 0.75)}
+            width={canvasBounds.width - (showMap ? 2.5 : 1.5)}
+            height={canvasBounds.height - (showMap ? 2.5 : 1.5)}
+            fill={showMap ? '#ffffff' : isDarkCanvas ? '#0f172a' : '#ffffff'}
             fillOpacity={
               showMap
-                ? canvasBounds.sheetFillOpacity !== undefined
-                  ? canvasBounds.sheetFillOpacity
-                  : 0.8
+                ? Math.min(canvasBounds.sheetFillOpacity ?? 0.25, 0.25)
                 : 1
             }
             stroke={showMap ? '#38bdf8' : isDarkCanvas ? '#334155' : '#94a3b8'}
@@ -916,8 +1129,8 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
           {/* Top Banner on Sheet: Page Size & Canvas Fixed Lock Notice */}
           <g
             transform={`translate(${canvasBounds.x}, ${canvasBounds.y - 28})`}
-            className="cursor-move"
-            onMouseDown={handleStartCanvasMove}
+            className={isMovingCanvasMode ? 'cursor-move' : 'pointer-events-none'}
+            onMouseDown={isMovingCanvasMode ? handleStartCanvasMove : undefined}
           >
             <rect
               x="0"
@@ -973,7 +1186,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
         </g>
 
         {/* 1. River and Road Crossings (Underneath conductors) */}
-        {project.crossings.map((crossing) => (
+        {mapFeatures.crossings && project.crossings.map((crossing) => (
           <CrossingRenderer
             key={crossing.id}
             crossing={crossing}
@@ -992,6 +1205,59 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
             }}
           />
         ))}
+
+        {/* Selected OpenStreetMap street outlines become normal, saved drawing geometry. */}
+        {(project.mapRoadOutlines || []).map((road) => (
+          <polyline
+            key={road.id}
+            points={road.points.map(({ x, y }) => `${x},${y}`).join(' ')}
+            fill="none"
+            stroke={isSelected(road.id) ? '#0ea5e9' : '#475569'}
+            strokeWidth={isSelected(road.id) ? 4 : 2.5}
+            strokeLinejoin="round"
+            strokeLinecap="round"
+            vectorEffect="non-scaling-stroke"
+            className="cursor-pointer"
+            onMouseDown={(event) => {
+              event.stopPropagation();
+              if (event.shiftKey) {
+                onSelectEntities(
+                  isSelected(road.id)
+                    ? selectedEntities.filter((item) => item.id !== road.id)
+                    : [...selectedEntities, { type: 'mapRoad', id: road.id }]
+                );
+              } else {
+                onSelectEntities([{ type: 'mapRoad', id: road.id }]);
+              }
+            }}
+          />
+        ))}
+        {roadDraftPoints.length > 1 && (
+          <polyline
+            points={roadDraftPoints.map(({ x, y }) => `${x},${y}`).join(' ')}
+            fill="none"
+            stroke="#0f766e"
+            strokeWidth="3"
+            strokeDasharray="8 4"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+            vectorEffect="non-scaling-stroke"
+            pointerEvents="none"
+          />
+        )}
+        {roadStartPoint && (
+          <line
+            x1={roadStartPoint.x}
+            y1={roadStartPoint.y}
+            x2={cursorPos.x}
+            y2={cursorPos.y}
+            stroke="#0f766e"
+            strokeWidth="3"
+            strokeDasharray="8 4"
+            vectorEffect="non-scaling-stroke"
+            pointerEvents="none"
+          />
+        )}
 
         {/* 2. Conductor Edges */}
         {project.edges.map((edge) => {
@@ -1065,16 +1331,36 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
           <g
             key={ann.id}
             transform={`translate(${ann.x}, ${ann.y}) rotate(${ann.rotation || 0})`}
+            onMouseDown={(event) => handleAnnotationMouseDown(event, ann)}
+            className="cursor-move"
           >
+            {!ann.text && (
+              <rect
+                x="0"
+                y="-20"
+                width="128"
+                height="26"
+                rx="3"
+                fill={isDarkCanvas ? '#0f172a' : '#ffffff'}
+                fillOpacity="0.85"
+                stroke={isSelected(ann.id) ? '#0284c7' : '#94a3b8'}
+                strokeDasharray="4 3"
+                pointerEvents="all"
+              />
+            )}
             <text
               x="0"
               y="0"
               fontSize={ann.fontSize || 12}
               fontWeight={ann.isBold ? 'bold' : 'normal'}
               fill={ann.color || (isDarkCanvas ? '#f8fafc' : '#1e293b')}
-              className="select-none pointer-events-none"
+              stroke="transparent"
+              strokeWidth="12"
+              paintOrder="stroke"
+              pointerEvents="all"
+              className="select-none"
             >
-              {ann.text}
+              {ann.text || 'Street label'}
             </text>
           </g>
         ))}
@@ -1124,29 +1410,81 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
         <MapUnderlay
           isVisible={showMap}
           opacity={mapOpacity}
-          mapType={mapType}
           locationName={project.metadata.location}
           geoLocation={project.geoLocation}
           zoom={zoom}
           fitZoom={fitZoom}
           panX={panX}
           panY={panY}
-          isLocked={true}
+          isLocked={mapLocked}
           layerPosition="overlay"
           mapZoomLevel={mapZoomLevel}
           canvasBounds={canvasBounds}
-          onMapZoomIn={() => setMapZoomLevel((prev) => Math.min(prev + 1, 19))}
-          onMapZoomOut={() => setMapZoomLevel((prev) => Math.max(prev - 1, 12))}
-          onMapZoomLevelChange={(lvl) => setMapZoomLevel(lvl)}
+          mapFeatures={mapFeatures}
+          onRoadFeaturesChange={onRoadFeaturesChange}
+          onMapZoomIn={!mapLocked ? () => updateMapZoomLevel(mapZoomLevel + 1) : undefined}
+          onMapZoomOut={!mapLocked ? () => updateMapZoomLevel(mapZoomLevel - 1) : undefined}
+          onMapZoomLevelChange={!mapLocked ? updateMapZoomLevel : undefined}
           onPlaceCanvasHere={handlePlaceCanvasAtLocation}
+          onMapCenterChange={onMapCenterChange}
         />
       )}
 
       {/* ---------------- FLOATING CANVAS & MAP MANAGER CONTROLLER ---------------- */}
-      <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center pointer-events-auto">
-        <div className="bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-2xl shadow-2xl p-2 px-3 flex items-center gap-2 text-xs text-slate-200">
+      {isFloatingToolbarVisible ? (
+      <div
+        ref={floatingToolbarRef}
+        className="absolute z-20 flex max-w-[calc(100%-16px)] flex-col items-center pointer-events-auto"
+        style={{
+          left: floatingToolbarPosition?.x ?? 8,
+          top: floatingToolbarPosition?.y ?? 12,
+        }}
+        onMouseDown={(event) => event.stopPropagation()}
+        onPointerMove={(event) => {
+          const offset = floatingToolbarDragOffset.current;
+          const parentRect = containerRef.current?.getBoundingClientRect();
+          const toolbarRect = floatingToolbarRef.current?.getBoundingClientRect();
+          if (!offset || !parentRect || !toolbarRect) return;
+          const maxX = Math.max(8, parentRect.width - toolbarRect.width - 8);
+          const maxY = Math.max(8, parentRect.height - toolbarRect.height - 8);
+          setFloatingToolbarPosition({
+            x: Math.min(Math.max(event.clientX - parentRect.left - offset.x, 8), maxX),
+            y: Math.min(Math.max(event.clientY - parentRect.top - offset.y, 8), maxY),
+          });
+        }}
+        onPointerUp={() => {
+          floatingToolbarDragOffset.current = null;
+        }}
+        onPointerCancel={() => {
+          floatingToolbarDragOffset.current = null;
+        }}
+      >
+        <div className="max-w-full overflow-x-auto bg-slate-900/60 hover:bg-slate-900/95 backdrop-blur-md border border-slate-700/70 rounded-2xl shadow-2xl p-2 px-3 flex items-center gap-2 text-xs text-slate-200 transition-colors">
+          <button
+            type="button"
+            className="p-1 -ml-1 rounded-lg text-slate-400 hover:text-white cursor-grab active:cursor-grabbing touch-none"
+            title="Drag to move this toolbar"
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              const toolbarRect = floatingToolbarRef.current?.getBoundingClientRect();
+              const parentRect = containerRef.current?.getBoundingClientRect();
+              if (!toolbarRect || !parentRect) return;
+              floatingToolbarDragOffset.current = {
+                x: event.clientX - toolbarRect.left,
+                y: event.clientY - toolbarRect.top,
+              };
+              setFloatingToolbarPosition({
+                x: toolbarRect.left - parentRect.left,
+                y: toolbarRect.top - parentRect.top,
+              });
+              event.currentTarget.setPointerCapture(event.pointerId);
+            }}
+          >
+            <GripVertical className="w-4 h-4" />
+          </button>
           {/* Location Search Input */}
-          <div className="w-64 sm:w-80">
+          <div className="w-36 sm:w-80 shrink-0">
             <LocationSearchBar
               compact={true}
               currentLocationName={project.metadata.location}
@@ -1157,8 +1495,8 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
 
           <div className="h-5 w-px bg-slate-700" />
 
-          {/* Page Size Selector (Canvas Size & Map Size Locked 1:1) */}
-          <div className="relative">
+          {/* Page Size Selector (Drawing sheet size is locked 1:1 to the selected page) */}
+          <div ref={pageSizeDropdownRef} className="relative">
             <button
               onClick={() => setShowPageSizeDropdown(!showPageSizeDropdown)}
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-[11px] font-semibold text-slate-200 border border-slate-700"
@@ -1268,18 +1606,36 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
                   ? 'bg-emerald-600/30 text-emerald-300 border border-emerald-500/50'
                   : 'bg-slate-800 text-slate-400 hover:text-slate-200'
               }`}
-              title="Toggle GIS Map Layer (1:1 with Canvas Sheet)"
+              title="Toggle GIS map layer around the fixed-size canvas sheet"
             >
               <Map className="w-3.5 h-3.5" />
               <span className="text-[10px] font-mono hidden lg:inline">{showMap ? 'Map ON' : 'Map OFF'}</span>
             </button>
           )}
 
+          {showMap && onToggleMapLock && (
+            <button
+              onClick={onToggleMapLock}
+              className={`flex items-center gap-1 px-2 py-1.5 rounded-xl text-[10px] font-bold transition-colors ${
+                !mapLocked
+                  ? 'bg-amber-500 text-slate-950 shadow'
+                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
+              title={mapLocked ? 'Unlock map view to edit and save a different map area' : 'Lock the current map area to this drawing'}
+              aria-pressed={mapLocked}
+            >
+              <Hand className="w-3.5 h-3.5" />
+              <span className="hidden lg:inline">{mapLocked ? 'Map Locked' : 'Lock Map'}</span>
+            </button>
+          )}
+
           {/* Paper Sheet Opacity Toggle (Solid Paper / Translucent / Transparent) */}
           <button
             onClick={() => {
-              const current = canvasBounds.sheetFillOpacity ?? 0.8;
-              const next = current > 0.4 ? 0 : current === 0 ? 0.6 : 0.85;
+              const opacitySteps = showMap ? [0, 0.12, 0.25] : [0, 0.6, 0.85];
+              const current = canvasBounds.sheetFillOpacity ?? (showMap ? 0.25 : 0.85);
+              const currentIndex = opacitySteps.findIndex((value) => value === current);
+              const next = opacitySteps[(currentIndex + 1) % opacitySteps.length];
               onUpdateProject({
                 ...project,
                 canvasBounds: {
@@ -1289,12 +1645,36 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
               });
             }}
             className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300"
-            title="Toggle Paper Sheet Transparency (Solid Paper / Translucent / Transparent Vectors on Map)"
+            title={
+              showMap
+                ? 'Cycle map sheet tint (transparent / light / stronger)'
+                : 'Toggle Paper Sheet Transparency (solid / translucent / transparent)'
+            }
           >
             <Layers className="w-3.5 h-3.5 text-amber-400" />
           </button>
+
+          <button
+            onClick={() => setIsFloatingToolbarVisible(false)}
+            className="p-1.5 rounded-xl bg-slate-800/70 hover:bg-slate-700 text-slate-300"
+            title="Hide floating toolbar"
+            aria-label="Hide floating toolbar"
+          >
+            <EyeOff className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
+      ) : (
+        <button
+          onMouseDown={(event) => event.stopPropagation()}
+          onClick={() => setIsFloatingToolbarVisible(true)}
+          className="absolute top-3 right-3 z-20 p-2 rounded-xl bg-slate-900/60 hover:bg-slate-900/95 backdrop-blur-md border border-slate-700/70 text-slate-300 shadow-lg"
+          title="Show floating toolbar"
+          aria-label="Show floating toolbar"
+        >
+          <Eye className="w-4 h-4" />
+        </button>
+      )}
     </div>
   );
 };

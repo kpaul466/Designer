@@ -2,7 +2,7 @@
  * PowerLine Designer — Main Application Component
  * 100% Client-Side Offline CAD Architecture:
  * - LocalStorage Persistence & Multi-Drawing Project Catalog (Open, Save, Duplicate, Delete, Import/Export JSON)
- * - GIS Map Underlay & Overlay (Satellite, OpenStreetMap, Road Map, Topo Terrain)
+ * - GIS Map Underlay & Overlay (OpenStreetMap)
  * - Flexible Canvas Sheet Placement on Map (Resizable bounds, Drag anywhere on map, Snap to searched location)
  * - Precision CAD Vector Engine & Full Keyboard Shortcuts (Ctrl+S, Ctrl+Z, Ctrl+C, Ctrl+V, Del, etc.)
  * - Automated Electrical Bill of Quantities (BOQ) Schedule with Schedule of Rates (SOR)
@@ -14,6 +14,9 @@ import {
   ActiveTool,
   CustomToolDefinition,
   DrawingProject,
+  MapFeatureSelection,
+  MapRoadCandidate,
+  MapSettings,
   ProjectMetadata,
   SelectedItem,
   SheetSizeType,
@@ -37,6 +40,9 @@ import { TemplatePickerModal } from './components/Panels/TemplatePickerModal';
 import { TitleBlockModal } from './components/Panels/TitleBlockModal';
 import { SavedProjectsModal } from './components/Panels/SavedProjectsModal';
 import {
+  createBlankDrawing,
+  deleteSavedTemplate,
+  getSavedTemplates,
   loadActiveProject,
   saveActiveProject,
   saveProjectToCatalog,
@@ -78,11 +84,40 @@ export default function App() {
   const [isDarkCanvas, setIsDarkCanvas] = useState<boolean>(false);
 
   // GIS Map Layer
-  const [showMap, setShowMap] = useState<boolean>(false);
-  const [mapOpacity, setMapOpacity] = useState<number>(55);
-  const [mapType, setMapType] = useState<'satellite' | 'roadmap' | 'terrain' | 'osm'>('roadmap');
-  const [mapLocked, setMapLocked] = useState<boolean>(true);
-  const [mapLayerPosition, setMapLayerPosition] = useState<'underlay' | 'overlay'>('underlay');
+  const [showMap, setShowMap] = useState<boolean>(project.mapSettings?.visible ?? false);
+  const [mapOpacity, setMapOpacity] = useState<number>(project.mapSettings?.opacity ?? 100);
+  const [mapLocked, setMapLocked] = useState<boolean>(project.mapSettings?.isLocked ?? true);
+  const [mapLayerPosition, setMapLayerPosition] = useState<'underlay' | 'overlay'>(
+    project.mapSettings?.layerPosition ?? 'underlay'
+  );
+  const [mapFeatures, setMapFeatures] = useState<MapFeatureSelection>({
+    roads: true,
+    rivers: true,
+    streetNames: true,
+    placeNames: true,
+    crossings: true,
+    ...project.mapSettings?.features,
+  });
+  const [availableMapRoads, setAvailableMapRoads] = useState<MapRoadCandidate[]>([]);
+  const [selectedMapRoads, setSelectedMapRoads] = useState<MapRoadCandidate[]>([]);
+  useEffect(() => {
+    setShowMap(project.mapSettings?.visible ?? false);
+    setMapOpacity(project.mapSettings?.opacity ?? 100);
+    setMapLocked(project.mapSettings?.isLocked ?? true);
+    setMapLayerPosition(project.mapSettings?.layerPosition ?? 'underlay');
+    setMapFeatures({
+      roads: true,
+      rivers: true,
+      streetNames: true,
+      placeNames: true,
+      crossings: true,
+      ...project.mapSettings?.features,
+    });
+  }, [project.id, project.mapSettings]);
+  useEffect(() => {
+    setAvailableMapRoads([]);
+    setSelectedMapRoads([]);
+  }, [project.id]);
 
   // Modals & Panels
   const [isBoqOpen, setIsBoqOpen] = useState<boolean>(true);
@@ -90,6 +125,7 @@ export default function App() {
   const [isProjectSetupOpen, setIsProjectSetupOpen] = useState<boolean>(false);
   const [isTitleBlockOpen, setIsTitleBlockOpen] = useState<boolean>(false);
   const [isExportOpen, setIsExportOpen] = useState<boolean>(false);
+  const [openOutputSettings, setOpenOutputSettings] = useState<boolean>(false);
   const [isCustomToolModalOpen, setIsCustomToolModalOpen] = useState<boolean>(false);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState<boolean>(false);
   const [isSavedProjectsOpen, setIsSavedProjectsOpen] = useState<boolean>(false);
@@ -100,6 +136,13 @@ export default function App() {
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  const handleToggleMapLock = () => {
+    const nextLocked = !mapLocked;
+    setMapLocked(nextLocked);
+    updateSavedMapSettings({ isLocked: nextLocked });
+    showToast(nextLocked ? 'Map view locked to this drawing' : 'Map view unlocked for editing');
   };
 
   // Push new project state to history and persist to LocalStorage
@@ -118,6 +161,135 @@ export default function App() {
     },
     [historyIndex]
   );
+
+  const handleCreateNewDrawing = () => {
+    const newProject = createBlankDrawing();
+    const result = saveProjectToCatalog(newProject);
+    if (!result.success) {
+      showToast(result.message);
+      return;
+    }
+    setProject(newProject);
+    setHistory([newProject]);
+    setHistoryIndex(0);
+    setSelectedEntities([]);
+    setClipboard(null);
+    setActiveTool('select');
+    setZoom(1);
+    setPanX(100);
+    setPanY(50);
+    setIsSavedProjectsOpen(false);
+    setIsTemplatesOpen(false);
+    showToast('Created a new blank drawing');
+  };
+
+  const handleLoadTemplate = (template: DrawingProject) => {
+    const now = new Date().toISOString();
+    const newProject: DrawingProject = {
+      ...JSON.parse(JSON.stringify(template)) as DrawingProject,
+      id: `project-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const result = saveProjectToCatalog(newProject);
+    if (!result.success) {
+      showToast(result.message);
+      return;
+    }
+    setProject(newProject);
+    setHistory([newProject]);
+    setHistoryIndex(0);
+    setSelectedEntities([]);
+    setClipboard(null);
+    setActiveTool('select');
+    setIsTemplatesOpen(false);
+    showToast(`Created drawing from template: ${newProject.title}`);
+  };
+
+  const updateSavedMapSettings = (changes: Partial<MapSettings>) => {
+    const mapSettings: MapSettings = {
+      visible: showMap,
+      opacity: mapOpacity,
+      mapType: 'osm',
+      zoomLevel: project.mapSettings?.zoomLevel ?? 16,
+      scale: project.mapSettings?.scale ?? 1,
+      sizeMode: project.mapSettings?.sizeMode ?? 'canvas_fit',
+      isLocked: mapLocked,
+      layerPosition: mapLayerPosition,
+      features: mapFeatures,
+      pinnedPlaces: project.mapSettings?.pinnedPlaces,
+      activePlace: project.mapSettings?.activePlace ?? null,
+      ...changes,
+    };
+    handleUpdateProject({
+      ...project,
+      mapSettings,
+      updatedAt: new Date().toISOString(),
+    }, false);
+  };
+
+  const handleToggleMap = () => {
+    const visible = !showMap;
+    setShowMap(visible);
+    updateSavedMapSettings({ visible });
+  };
+
+  const handleMapVisibilityChange = (visible: boolean) => {
+    setShowMap(visible);
+    updateSavedMapSettings({ visible });
+  };
+
+  const handleMapOpacityChange = (opacity: number) => {
+    setMapOpacity(opacity);
+    updateSavedMapSettings({ opacity });
+  };
+
+  const handleMapFeatureChange = (key: keyof MapFeatureSelection, enabled: boolean) => {
+    const features = { ...mapFeatures, [key]: enabled };
+    setMapFeatures(features);
+    updateSavedMapSettings({ features });
+  };
+
+  const handleToggleMapLayerPosition = () => {
+    const layerPosition = mapLayerPosition === 'underlay' ? 'overlay' : 'underlay';
+    setMapLayerPosition(layerPosition);
+    updateSavedMapSettings({ layerPosition });
+  };
+
+  const handleToggleMapRoadSelection = (road: MapRoadCandidate) => {
+    setSelectedMapRoads((current) =>
+      current.some((selected) => selected.id === road.id)
+        ? current.filter((selected) => selected.id !== road.id)
+        : [...current, road]
+    );
+  };
+
+  const handleAddSelectedMapRoads = () => {
+    const existingSources = new Set((project.mapRoadOutlines || []).map((road) => road.sourceId));
+    const selectedRoadsToAdd = selectedMapRoads.filter((road) => !existingSources.has(road.id));
+    if (selectedRoadsToAdd.length === 0) {
+      showToast('Selected streets are already on the canvas');
+      return;
+    }
+    const roadOutlines = selectedRoadsToAdd.map((road) => ({
+      ...road,
+      id: `map-road-${road.id}`,
+      sourceId: road.id,
+      name: road.name,
+      points: road.points.map((point) => ({ ...point })),
+    }));
+    handleUpdateProject({
+      ...project,
+      mapRoadOutlines: [
+        ...(project.mapRoadOutlines || []),
+        ...roadOutlines,
+      ],
+      updatedAt: new Date().toISOString(),
+    });
+    setSelectedEntities(roadOutlines.map(({ id }) => ({ type: 'mapRoad', id })));
+    setSelectedMapRoads([]);
+    showToast(`Added ${selectedRoadsToAdd.length} street outline(s) to the canvas`);
+  };
 
   // Add Custom Tool definition
   const handleAddCustomTool = useCallback(
@@ -180,6 +352,8 @@ export default function App() {
     );
 
     const updatedCrossings = project.crossings.filter((c) => !selectedIds.has(c.id));
+    const updatedAnnotations = project.annotations.filter((a) => !selectedIds.has(a.id));
+    const updatedMapRoadOutlines = (project.mapRoadOutlines || []).filter((road) => !selectedIds.has(road.id));
 
     handleUpdateProject({
       ...project,
@@ -187,6 +361,8 @@ export default function App() {
       edges: updatedEdges,
       stays: updatedStays,
       crossings: updatedCrossings,
+      annotations: updatedAnnotations,
+      mapRoadOutlines: updatedMapRoadOutlines,
       updatedAt: new Date().toISOString(),
     });
 
@@ -448,7 +624,7 @@ export default function App() {
       } else if (e.key.toLowerCase() === 'g') {
         setShowGrid((prev) => !prev);
       } else if (e.key.toLowerCase() === 'm') {
-        setShowMap((prev) => !prev);
+        handleToggleMap();
       } else if (e.key.toLowerCase() === 'f') {
         handleFitToScreen();
       } else if (e.key === '?' || (e.shiftKey && e.key === '/')) {
@@ -488,11 +664,12 @@ export default function App() {
     handleSelectAll,
     handleFitToScreen,
     handleNudge,
+    handleToggleMap,
     showGrid,
     showMap,
   ]);
 
-  // Handle Page Size Change (Locks canvasBounds and map size 1:1)
+  // Handle page size changes while preserving the fixed 1:1 drawing sheet.
   const handleSelectPageSize = useCallback(
     (size: SheetSizeType) => {
       const newBounds = getCanvasBoundsForPageSize(size, project.canvasBounds);
@@ -511,7 +688,7 @@ export default function App() {
   );
 
   return (
-    <div className="w-screen h-screen flex flex-col bg-slate-950 text-slate-100 overflow-hidden font-sans">
+    <div className="app-theme-light w-full h-dvh min-h-0 flex flex-col bg-slate-950 text-slate-100 overflow-hidden font-sans">
       {/* Top CAD Navigation Bar */}
       <TopBar
         project={project}
@@ -530,19 +707,28 @@ export default function App() {
         isDarkCanvas={isDarkCanvas}
         onToggleDarkCanvas={() => setIsDarkCanvas(!isDarkCanvas)}
         showMap={showMap}
-        onToggleMap={() => setShowMap(!showMap)}
+        onToggleMap={handleToggleMap}
         mapOpacity={mapOpacity}
-        onMapOpacityChange={setMapOpacity}
-        mapType={mapType}
-        onMapTypeChange={setMapType}
+        onMapOpacityChange={handleMapOpacityChange}
+        mapFeatures={mapFeatures}
+        onMapFeatureChange={handleMapFeatureChange}
+        availableMapRoads={availableMapRoads}
+        selectedMapRoadIds={selectedMapRoads.map((road) => road.id)}
+        onToggleMapRoadSelection={handleToggleMapRoadSelection}
+        onAddSelectedMapRoads={handleAddSelectedMapRoads}
+        mapLocked={mapLocked}
+        onToggleMapLock={handleToggleMapLock}
         mapLayerPosition={mapLayerPosition}
-        onToggleMapLayerPosition={() =>
-          setMapLayerPosition((prev) => (prev === 'underlay' ? 'overlay' : 'underlay'))
-        }
+        onToggleMapLayerPosition={handleToggleMapLayerPosition}
         onOpenTemplates={() => setIsTemplatesOpen(true)}
+        onCreateDrawing={handleCreateNewDrawing}
         onOpenProjectSetup={() => setIsProjectSetupOpen(true)}
         onOpenTitleBlock={() => setIsTitleBlockOpen(true)}
         onOpenExport={() => setIsExportOpen(true)}
+        onOpenOutputSettings={() => {
+          setIsExportOpen(true);
+          setOpenOutputSettings(true);
+        }}
         onOpenShortcuts={() => setIsShortcutsOpen(true)}
         onSave={handleSave}
         isSaving={isSaving}
@@ -551,8 +737,8 @@ export default function App() {
         onSelectPageSize={handleSelectPageSize}
       />
 
-      {/* Main Workspace Area (Left Toolbox + Center Drawing Canvas + Right Property Inspector) */}
-      <div className="flex-1 flex overflow-hidden relative">
+      {/* Main Workspace Area (Left Toolbox + Center Drawing Canvas + Right Panels) */}
+      <div className="flex-1 min-h-0 flex overflow-hidden relative">
         {/* Left CAD Tool Palette */}
         <LeftToolbox
           activeTool={activeTool}
@@ -561,50 +747,87 @@ export default function App() {
           onOpenCustomToolModal={() => setIsCustomToolModalOpen(true)}
         />
 
-        {/* Center SVG CAD Canvas & Flexible Map */}
-        <main className="flex-1 h-full relative overflow-hidden">
-          <DrawingCanvas
-            project={project}
-            activeTool={activeTool}
-            showGrid={showGrid}
-            snapEnabled={snapEnabled}
-            gridType={gridType}
-            isDarkCanvas={isDarkCanvas}
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col lg:flex-row overflow-hidden">
+          {/* Center SVG CAD Canvas & Flexible Map */}
+          <main className="flex-1 min-w-0 min-h-0 relative overflow-hidden">
+            <DrawingCanvas
+              project={project}
+              activeTool={activeTool}
+              showGrid={showGrid}
+              snapEnabled={snapEnabled}
+              gridType={gridType}
+              isDarkCanvas={isDarkCanvas}
+              selectedEntities={selectedEntities}
+              onSelectEntities={setSelectedEntities}
+              onUpdateProject={handleUpdateProject}
+              showMap={showMap}
+              mapOpacity={mapOpacity}
+              mapLocked={mapLocked}
+              mapFeatures={mapFeatures}
+              onRoadFeaturesChange={setAvailableMapRoads}
+              mapLayerPosition={mapLayerPosition}
+              onMapOpacityChange={handleMapOpacityChange}
+              onToggleMap={handleToggleMap}
+              onToggleMapLock={handleToggleMapLock}
+              onMapCenterChange={(lat, lng) => {
+                const location = project.geoLocation;
+                handleUpdateProject({
+                  ...project,
+                  geoLocation: {
+                    name: location?.name ?? project.metadata.location ?? 'Map center',
+                    lat,
+                    lng,
+                    district: location?.district,
+                    state: location?.state,
+                    description: location?.description,
+                    category: location?.category,
+                  },
+                  mapSettings: {
+                    visible: showMap,
+                    opacity: mapOpacity,
+                    mapType: 'osm',
+                    zoomLevel: project.mapSettings?.zoomLevel ?? 16,
+                    scale: project.mapSettings?.scale ?? 1,
+                    sizeMode: project.mapSettings?.sizeMode ?? 'canvas_fit',
+                    isLocked: mapLocked,
+                    layerPosition: mapLayerPosition,
+                    features: mapFeatures,
+                    pinnedPlaces: project.mapSettings?.pinnedPlaces,
+                    activePlace: project.mapSettings?.activePlace ?? null,
+                  },
+                }, false);
+              }}
+              onSelectLocation={(loc) => {
+                handleUpdateProject({
+                  ...project,
+                  metadata: {
+                    ...project.metadata,
+                    location: loc.name,
+                  },
+                  geoLocation: loc,
+                });
+                showToast(`Navigated to: ${loc.name}`);
+              }}
+              onCursorMove={(x, y) => setCursorCoords({ x, y })}
+              zoom={zoom}
+              panX={panX}
+              panY={panY}
+              onZoomChange={setZoom}
+              onPanChange={(x, y) => {
+                setPanX(x);
+                setPanY(y);
+              }}
+              onSelectTool={setActiveTool}
+            />
+          </main>
+
+          <PropertyInspector
             selectedEntities={selectedEntities}
-            onSelectEntities={setSelectedEntities}
+            project={project}
             onUpdateProject={handleUpdateProject}
-            showMap={showMap}
-            mapOpacity={mapOpacity}
-            mapType={mapType}
-            mapLocked={mapLocked}
-            mapLayerPosition={mapLayerPosition}
-            onMapTypeChange={setMapType}
-            onMapOpacityChange={setMapOpacity}
-            onToggleMap={() => setShowMap(!showMap)}
-            onSelectLocation={(loc) => {
-              handleUpdateProject({
-                ...project,
-                metadata: {
-                  ...project.metadata,
-                  location: loc.name,
-                },
-                geoLocation: loc,
-              });
-              showToast(`Navigated to: ${loc.name}`);
-            }}
-            onCursorMove={(x, y) => setCursorCoords({ x, y })}
-            zoom={zoom}
-            panX={panX}
-            panY={panY}
-            onZoomChange={setZoom}
-            onPanChange={(x, y) => {
-              setPanX(x);
-              setPanY(y);
-            }}
-            onSelectTool={setActiveTool}
+            onClose={() => setSelectedEntities([])}
           />
 
-          {/* Floating BOQ Schedule Table */}
           <BoqPanel
             project={project}
             onUpdateOverrides={(overrides) =>
@@ -613,15 +836,7 @@ export default function App() {
             isOpen={isBoqOpen}
             onToggleOpen={() => setIsBoqOpen(!isBoqOpen)}
           />
-        </main>
-
-        {/* Right Property Inspector Dock */}
-        <PropertyInspector
-          selectedEntities={selectedEntities}
-          project={project}
-          onUpdateProject={handleUpdateProject}
-          onClose={() => setSelectedEntities([])}
-        />
+        </div>
       </div>
 
       {/* Bottom CAD Status Bar */}
@@ -654,21 +869,22 @@ export default function App() {
           setSelectedEntities([]);
           showToast(`Loaded: ${selected.title}`);
         }}
+        onCreateNewDrawing={handleCreateNewDrawing}
         onClose={() => setIsSavedProjectsOpen(false)}
       />
 
-      {/* Template & Sample Blueprint Picker Modal */}
+      {/* User-saved Drawing Templates */}
       <TemplatePickerModal
         isOpen={isTemplatesOpen}
         onClose={() => setIsTemplatesOpen(false)}
-        onSelectProject={(selected) => {
-          setProject(selected);
-          saveActiveProject(selected);
-          setHistory([selected]);
-          setHistoryIndex(0);
-          setSelectedEntities([]);
-          showToast(`Template loaded: ${selected.title}`);
+        templates={getSavedTemplates()}
+        onSelectProject={handleLoadTemplate}
+        onDeleteTemplate={(templateId) => {
+          const result = deleteSavedTemplate(templateId);
+          showToast(result.message);
+          return result.success;
         }}
+        onCreateNewDrawing={handleCreateNewDrawing}
       />
 
       {/* Project Setup & Configuration Modal */}
@@ -707,8 +923,17 @@ export default function App() {
       {/* A4 Landscape PDF Export & Print Modal */}
       <ExportModal
         isOpen={isExportOpen}
+        openSettings={openOutputSettings}
         project={project}
-        onClose={() => setIsExportOpen(false)}
+        mapFeatures={mapFeatures}
+        showMap={showMap}
+        mapOpacity={mapOpacity}
+        mapLayerPosition={mapLayerPosition}
+        onMapVisibilityChange={handleMapVisibilityChange}
+        onClose={() => {
+          setIsExportOpen(false);
+          setOpenOutputSettings(false);
+        }}
       />
 
       {/* Custom Tool Creator Modal */}

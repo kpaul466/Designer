@@ -94,6 +94,24 @@ export interface StayItem {
 
 export type CrossingType = 'river' | 'road' | 'railway';
 
+export interface MapFeatureSelection {
+  roads: boolean;
+  rivers: boolean;
+  streetNames: boolean;
+  placeNames: boolean;
+  crossings: boolean;
+}
+
+export interface MapRoadCandidate {
+  id: string;
+  name: string;
+  points: Array<{ x: number; y: number }>;
+}
+
+export interface MapRoadOutline extends MapRoadCandidate {
+  sourceId: string;
+}
+
 export interface CrossingFeature {
   id: string;
   type: CrossingType;
@@ -156,6 +174,9 @@ export interface ProjectMetadata {
   preparedBy: string;
   checkedBy: string;
   approvedBy: string;
+  preparedByOffice?: string;
+  checkedByOffice?: string;
+  approvedByOffice?: string;
   date: string;
   revision: string;
   sheetSize: SheetSizeType;
@@ -186,7 +207,7 @@ export interface GeoLocation {
 export interface MapSettings {
   visible: boolean;
   opacity: number;
-  mapType: 'satellite' | 'roadmap' | 'terrain' | 'osm';
+  mapType: 'osm';
   zoomLevel: number; // Slippy tile zoom level (12 to 19)
   scale: number; // Feature scale multiplier (0.5 to 2.0)
   sizeMode: 'fullscreen' | 'canvas_fit' | 'custom';
@@ -195,6 +216,8 @@ export interface MapSettings {
   offsetX?: number;
   offsetY?: number;
   isLocked: boolean;
+  layerPosition?: 'underlay' | 'overlay';
+  features?: MapFeatureSelection;
   pinnedPlaces?: GeoLocation[];
   activePlace?: GeoLocation | null;
 }
@@ -225,6 +248,7 @@ export interface DrawingProject {
   canvasBounds?: CanvasBounds;
   geoLocation?: GeoLocation;
   mapSettings?: MapSettings;
+  mapRoadOutlines?: MapRoadOutline[];
   createdAt: string;
   updatedAt: string;
   version: number;
@@ -265,12 +289,14 @@ export type ActiveTool =
   | 'lt_stay'
   | 'river_crossing'
   | 'road_crossing'
+  | 'freeform_road'
+  | 'road_segment'
   | 'railway_crossing'
   | 'text_annotation'
   | 'measure'
   | `custom_${string}`;
 
 export interface SelectedItem {
-  type: 'node' | 'edge' | 'stay' | 'crossing' | 'annotation';
+  type: 'node' | 'edge' | 'stay' | 'crossing' | 'annotation' | 'mapRoad';
   id: string;
 }

@@ -30,6 +30,7 @@ import {
   Activity,
   Box,
   SlidersHorizontal,
+  Type,
 } from 'lucide-react';
 
 interface LeftToolboxProps {
@@ -63,6 +64,7 @@ export const LeftToolbox: React.FC<LeftToolboxProps> = ({
       tools: [
         { id: 'select' as ActiveTool, label: 'Select & Move (V)', icon: MousePointer },
         { id: 'pan' as ActiveTool, label: 'Hand / Pan (H)', icon: Move },
+        { id: 'text_annotation' as ActiveTool, label: 'Manual Street Label', icon: Type },
       ],
     },
     {
@@ -118,12 +120,14 @@ export const LeftToolbox: React.FC<LeftToolboxProps> = ({
         { id: 'landmark_school' as ActiveTool, label: 'School / Institution', badge: 'School', icon: School },
         { id: 'river_crossing' as ActiveTool, label: 'River Crossing Feature', badge: 'River', icon: Waves },
         { id: 'road_crossing' as ActiveTool, label: 'Road Crossing Feature', badge: 'Road', icon: Route },
+        { id: 'freeform_road' as ActiveTool, label: 'Freeform Road', badge: 'Road', icon: Spline },
+        { id: 'road_segment' as ActiveTool, label: 'Straight Road (2 Points)', badge: '2-Point', icon: Route },
       ],
     },
   ];
 
   return (
-    <aside className="w-16 md:w-56 bg-white border-r border-slate-200 flex flex-col justify-between overflow-y-auto select-none shrink-0 z-20 shadow-xs">
+    <aside className="w-12 sm:w-16 lg:w-56 bg-white border-r border-slate-200 flex flex-col justify-between overflow-y-auto select-none shrink-0 z-20 shadow-xs">
       <div className="p-2 space-y-4">
         {/* Custom Tools Section */}
         <div className="space-y-1">

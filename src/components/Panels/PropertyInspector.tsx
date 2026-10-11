@@ -6,11 +6,13 @@
 import React from 'react';
 import {
   ConductorEdge,
+  AnnotationItem,
   CrossingFeature,
   DrawingProject,
   ElectricalNode,
   SelectedItem,
   StayItem,
+  MapRoadOutline,
 } from '../../types/electrical';
 import { Layers, Trash2, X } from 'lucide-react';
 
@@ -36,6 +38,8 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
     const edgeCount = selectedEntities.filter((e) => e.type === 'edge').length;
     const stayCount = selectedEntities.filter((e) => e.type === 'stay').length;
     const crossingCount = selectedEntities.filter((e) => e.type === 'crossing').length;
+    const annotationCount = selectedEntities.filter((e) => e.type === 'annotation').length;
+    const mapRoadCount = selectedEntities.filter((e) => e.type === 'mapRoad').length;
 
     const handleBatchStatus = (status: 'proposed' | 'existing') => {
       const updatedNodes = project.nodes.map((n) =>
@@ -71,6 +75,8 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
         (s) => !selectedIds.has(s.id) && remainingNodeIds.has(s.poleId)
       );
       const updatedCrossings = project.crossings.filter((c) => !selectedIds.has(c.id));
+      const updatedAnnotations = project.annotations.filter((annotation) => !selectedIds.has(annotation.id));
+      const updatedMapRoadOutlines = (project.mapRoadOutlines || []).filter((road) => !selectedIds.has(road.id));
 
       onUpdateProject({
         ...project,
@@ -78,13 +84,15 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
         edges: updatedEdges,
         stays: updatedStays,
         crossings: updatedCrossings,
+        annotations: updatedAnnotations,
+        mapRoadOutlines: updatedMapRoadOutlines,
         updatedAt: new Date().toISOString(),
       });
       onClose();
     };
 
     return (
-      <div className="w-72 bg-slate-900 border-l border-slate-800 p-4 flex flex-col text-slate-200 select-none z-20 shrink-0 overflow-y-auto">
+      <div className="w-full h-[25dvh] min-h-32 lg:h-full lg:w-72 bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-800 p-4 flex flex-col text-slate-200 select-none z-20 shrink-0 overflow-y-auto">
         <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
           <div className="flex items-center gap-1.5 font-semibold text-xs text-white uppercase tracking-wider">
             <Layers className="w-4 h-4 text-sky-400" />
@@ -119,6 +127,18 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
               <div className="flex justify-between text-slate-300">
                 <span>Crossings:</span>
                 <strong className="text-white">{crossingCount}</strong>
+              </div>
+            )}
+            {annotationCount > 0 && (
+              <div className="flex justify-between text-slate-300">
+                <span>Street Labels:</span>
+                <strong className="text-white">{annotationCount}</strong>
+              </div>
+            )}
+            {mapRoadCount > 0 && (
+              <div className="flex justify-between text-slate-300">
+                <span>Street Outlines:</span>
+                <strong className="text-white">{mapRoadCount}</strong>
               </div>
             )}
           </div>
@@ -199,7 +219,7 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
     };
 
     return (
-      <div className="w-72 bg-slate-900 border-l border-slate-800 p-4 flex flex-col text-slate-200 select-none z-20 shrink-0 overflow-y-auto">
+      <div className="w-full h-[25dvh] min-h-32 lg:h-full lg:w-72 bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-800 p-4 flex flex-col text-slate-200 select-none z-20 shrink-0 overflow-y-auto">
         <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
           <div className="font-semibold text-xs text-white uppercase tracking-wider">
             {node.type.replace('_', ' ')}
@@ -366,7 +386,7 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
     };
 
     return (
-      <div className="w-72 bg-slate-900 border-l border-slate-800 p-4 flex flex-col text-slate-200 select-none z-20 shrink-0 overflow-y-auto">
+      <div className="w-full h-[25dvh] min-h-32 lg:h-full lg:w-72 bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-800 p-4 flex flex-col text-slate-200 select-none z-20 shrink-0 overflow-y-auto">
         <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
           <div className="font-semibold text-xs text-white uppercase tracking-wider">
             {edge.type.replace('_', ' ')}
@@ -481,7 +501,7 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
     };
 
     return (
-      <div className="w-72 bg-slate-900 border-l border-slate-800 p-4 flex flex-col text-slate-200 select-none z-20 shrink-0 overflow-y-auto">
+      <div className="w-full h-[25dvh] min-h-32 lg:h-full lg:w-72 bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-800 p-4 flex flex-col text-slate-200 select-none z-20 shrink-0 overflow-y-auto">
         <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
           <div className="font-semibold text-xs text-white uppercase tracking-wider">
             {stay.type.replace('_', ' ')}
@@ -562,7 +582,7 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
     };
 
     return (
-      <div className="w-72 bg-slate-900 border-l border-slate-800 p-4 flex flex-col text-slate-200 select-none z-20 shrink-0 overflow-y-auto">
+      <div className="w-full h-[25dvh] min-h-32 lg:h-full lg:w-72 bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-800 p-4 flex flex-col text-slate-200 select-none z-20 shrink-0 overflow-y-auto">
         <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
           <div className="font-semibold text-xs text-white uppercase tracking-wider">
             {crossing.type.toUpperCase()} CROSSING
@@ -610,6 +630,132 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
           >
             <Trash2 className="w-3.5 h-3.5" />
             <span>Delete Crossing</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (selectedEntity.type === 'annotation') {
+    const annotation = project.annotations.find((item) => item.id === selectedEntity.id);
+    if (!annotation) return null;
+
+    const updateAnnotation = (updated: Partial<AnnotationItem>) => {
+      onUpdateProject({
+        ...project,
+        annotations: project.annotations.map((item) =>
+          item.id === annotation.id ? { ...item, ...updated } : item
+        ),
+        updatedAt: new Date().toISOString(),
+      });
+    };
+    const deleteAnnotation = () => {
+      onUpdateProject({
+        ...project,
+        annotations: project.annotations.filter((item) => item.id !== annotation.id),
+        updatedAt: new Date().toISOString(),
+      });
+      onClose();
+    };
+
+    return (
+      <div className="w-full h-[25dvh] min-h-32 lg:h-full lg:w-72 bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-800 p-4 flex flex-col text-slate-200 select-none z-20 shrink-0 overflow-y-auto">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
+          <div className="font-semibold text-xs text-white uppercase tracking-wider">Street Label</div>
+          <button onClick={onClose} className="text-slate-400 hover:text-white">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="space-y-3 text-xs">
+          <label className="block text-[11px] text-slate-400">
+            Label text
+            <input
+              autoFocus
+              type="text"
+              value={annotation.text}
+              onChange={(event) => updateAnnotation({ text: event.target.value })}
+              placeholder="Type a street name"
+              className="mt-1 w-full bg-slate-800 border border-slate-700 rounded-md px-2.5 py-2 text-xs text-slate-100"
+            />
+          </label>
+          <label className="block text-[11px] text-slate-400">
+            Text size
+            <input
+              type="number"
+              min="6"
+              max="96"
+              value={annotation.fontSize}
+              onChange={(event) => updateAnnotation({ fontSize: Math.max(6, Number(event.target.value)) })}
+              className="mt-1 w-full bg-slate-800 border border-slate-700 rounded-md px-2.5 py-1.5 text-xs text-slate-100"
+            />
+          </label>
+          <label className="flex items-center gap-2 text-[11px] text-slate-300">
+            <input
+              type="checkbox"
+              checked={annotation.isBold ?? false}
+              onChange={(event) => updateAnnotation({ isBold: event.target.checked })}
+              className="rounded accent-sky-500"
+            />
+            Bold label
+          </label>
+        </div>
+        <div className="mt-auto pt-4 border-t border-slate-800">
+          <button
+            onClick={deleteAnnotation}
+            className="w-full py-2 bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-800/60 rounded-lg flex items-center justify-center gap-2 text-xs font-semibold transition-colors"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            Delete Label
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (selectedEntity.type === 'mapRoad') {
+    const road = (project.mapRoadOutlines || []).find((item) => item.id === selectedEntity.id);
+    if (!road) return null;
+    const updateRoad = (updated: Partial<MapRoadOutline>) => {
+      onUpdateProject({
+        ...project,
+        mapRoadOutlines: (project.mapRoadOutlines || []).map((item) =>
+          item.id === road.id ? { ...item, ...updated } : item
+        ),
+        updatedAt: new Date().toISOString(),
+      });
+    };
+    const deleteRoad = () => {
+      onUpdateProject({
+        ...project,
+        mapRoadOutlines: (project.mapRoadOutlines || []).filter((item) => item.id !== road.id),
+        updatedAt: new Date().toISOString(),
+      });
+      onClose();
+    };
+    return (
+      <div className="w-full h-[25dvh] min-h-32 lg:h-full lg:w-72 bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-800 p-4 flex flex-col text-slate-200 select-none z-20 shrink-0 overflow-y-auto">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
+          <div className="font-semibold text-xs text-white uppercase tracking-wider">Map Street Outline</div>
+          <button onClick={onClose} className="text-slate-400 hover:text-white">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <label className="block text-[11px] text-slate-400">
+          Street name
+          <input
+            type="text"
+            value={road.name}
+            onChange={(event) => updateRoad({ name: event.target.value })}
+            className="mt-1 w-full bg-slate-800 border border-slate-700 rounded-md px-2.5 py-2 text-xs text-slate-100"
+          />
+        </label>
+        <div className="mt-auto pt-4 border-t border-slate-800">
+          <button
+            onClick={deleteRoad}
+            className="w-full py-2 bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-800/60 rounded-lg flex items-center justify-center gap-2 text-xs font-semibold transition-colors"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            Delete Street Outline
           </button>
         </div>
       </div>

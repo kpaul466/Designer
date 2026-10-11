@@ -51,13 +51,11 @@ export const BoqPanel: React.FC<BoqPanelProps> = ({
 
   return (
     <div
-      className={`fixed bottom-10 right-6 w-96 bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl z-30 transition-all duration-200 overflow-hidden ${
-        isOpen ? 'max-h-[500px]' : 'max-h-12'
-      }`}
+      className="h-[30dvh] min-h-36 max-h-[40dvh] w-full lg:h-full lg:max-h-none lg:w-[min(22rem,30vw)] lg:min-w-[18rem] bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-800 flex flex-col text-slate-200 shrink-0 overflow-hidden"
     >
       {/* Header */}
       <div
-        className="h-12 px-4 bg-slate-800/90 flex items-center justify-between cursor-pointer border-b border-slate-700/60 select-none"
+        className="h-12 px-4 bg-slate-800/90 flex items-center justify-between cursor-pointer border-b border-slate-700/60 select-none shrink-0"
         onClick={onToggleOpen}
       >
         <div className="flex items-center gap-2">
@@ -76,8 +74,8 @@ export const BoqPanel: React.FC<BoqPanelProps> = ({
 
       {/* Table Body */}
       {isOpen && (
-        <div className="p-3 text-xs flex flex-col max-h-[440px]">
-          <div className="overflow-y-auto max-h-64 rounded-lg border border-slate-800 mb-3">
+        <div className="p-3 text-xs flex flex-col flex-1 min-h-0">
+          <div className="overflow-y-auto flex-1 min-h-0 rounded-lg border border-slate-800 mb-3">
             <table className="w-full text-left text-slate-300">
               <thead className="bg-slate-950/70 text-[10px] uppercase font-bold text-slate-400 border-b border-slate-800 sticky top-0">
                 <tr>

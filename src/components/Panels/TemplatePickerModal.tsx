@@ -1,153 +1,151 @@
-/**
- * Template & Sample Blueprint Picker Modal
- * Lets users choose from all 6 real-world sample drawings or start with blank engineering presets
- */
-
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { DrawingProject } from '../../types/electrical';
-import { BLANK_TEMPLATES, SAMPLE_BLUEPRINTS } from '../../templates/sampleBlueprints';
-import { FilePlus2, Layers, Sparkles, X, Zap } from 'lucide-react';
+import { FilePlus2, Layers, Sparkles, Trash2, X } from 'lucide-react';
 
 interface TemplatePickerModalProps {
   isOpen: boolean;
+  templates: DrawingProject[];
   onClose: () => void;
   onSelectProject: (project: DrawingProject) => void;
+  onDeleteTemplate: (templateId: string) => boolean;
+  onCreateNewDrawing: () => void;
 }
 
 export const TemplatePickerModal: React.FC<TemplatePickerModalProps> = ({
   isOpen,
+  templates,
   onClose,
   onSelectProject,
+  onDeleteTemplate,
+  onCreateNewDrawing,
 }) => {
-  const [activeTab, setActiveTab] = useState<'samples' | 'blank'>('samples');
+  const [savedTemplates, setSavedTemplates] = useState(templates);
+  const [deleteConfirmation, setDeleteConfirmation] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setSavedTemplates(templates);
+      setDeleteConfirmation(null);
+    }
+  }, [isOpen, templates]);
 
   if (!isOpen) return null;
 
+  const handleDelete = (templateId: string) => {
+    if (deleteConfirmation !== templateId) {
+      setDeleteConfirmation(templateId);
+      return;
+    }
+    if (onDeleteTemplate(templateId)) {
+      setSavedTemplates((current) => current.filter((template) => template.id !== templateId));
+      setDeleteConfirmation(null);
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-700 w-full max-w-4xl rounded-2xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden">
-        {/* Header */}
-        <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/90">
-          <div>
-            <h2 className="text-base font-bold text-white flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-amber-400" />
-              <span>Drawing Templates & Sample Blueprints</span>
+    <div
+      className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div className="w-full max-w-4xl max-h-[92dvh] bg-white border border-slate-200 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+        <div className="p-4 sm:p-5 border-b border-slate-200 flex items-start justify-between gap-4 bg-slate-50">
+          <div className="min-w-0">
+            <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+              <Layers className="w-5 h-5 text-sky-600 shrink-0" />
+              Saved Drawing Templates
             </h2>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Choose a pre-loaded sample drawing for instant inspiration or start with a blank engineering template.
+            <p className="text-xs text-slate-500 mt-1">
+              Reusable templates you saved from your drawings. Old bundled sample templates have been removed.
             </p>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={onCreateNewDrawing}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold"
+            >
+              <FilePlus2 className="w-4 h-4" />
+              <span className="hidden sm:inline">New Drawing</span>
+            </button>
+            <button
+              onClick={onClose}
+              className="p-2 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-200"
+              aria-label="Close templates"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
-        {/* Segmented Filter Bar */}
-        <div className="px-5 pt-3 pb-1 border-b border-slate-800 flex items-center gap-2">
-          <button
-            onClick={() => setActiveTab('samples')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              activeTab === 'samples'
-                ? 'bg-red-600 text-white shadow-md shadow-red-950'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-            }`}
-          >
-            6 Real-World Sample Blueprints ({SAMPLE_BLUEPRINTS.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('blank')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              activeTab === 'blank'
-                ? 'bg-red-600 text-white shadow-md shadow-red-950'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-            }`}
-          >
-            Blank Starter Presets ({BLANK_TEMPLATES.length})
-          </button>
-        </div>
-
-        {/* Template Grid */}
-        <div className="p-5 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-4">
-          {activeTab === 'samples'
-            ? SAMPLE_BLUEPRINTS.map((sample, index) => (
-                <div
-                  key={sample.id}
-                  className="bg-slate-800/60 border border-slate-700/80 rounded-xl p-4 hover:border-red-500/80 hover:bg-slate-800 transition-all flex flex-col justify-between group cursor-pointer"
-                  onClick={() => {
-                    onSelectProject(JSON.parse(JSON.stringify(sample)));
-                    onClose();
-                  }}
-                >
-                  <div>
-                    <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1.5">
-                      <span className="font-mono text-amber-400 font-bold">SAMPLE {index + 1}</span>
-                      <span className="font-mono text-slate-400">{sample.metadata.drawingNo}</span>
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-5">
+          {savedTemplates.length === 0 ? (
+            <div className="min-h-48 flex flex-col items-center justify-center text-center">
+              <Sparkles className="w-10 h-10 text-slate-300 mb-3" />
+              <h3 className="font-semibold text-slate-800">No saved templates yet</h3>
+              <p className="max-w-md text-xs text-slate-500 mt-1">
+                Open My Drawings and choose “Save as template” on a drawing to keep a reusable copy here.
+              </p>
+              <button
+                onClick={onClose}
+                className="mt-4 px-3 py-2 rounded-lg border border-slate-300 text-slate-700 text-xs font-semibold hover:bg-slate-50"
+              >
+                Go to My Drawings
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {savedTemplates.map((template) => (
+                <article key={template.id} className="rounded-xl border border-slate-200 p-4 flex flex-col gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 text-[10px] text-slate-500">
+                      <span>{template.nodes.length} poles/structures</span>
+                      <span>·</span>
+                      <span>{template.edges.length} conductor spans</span>
                     </div>
-
-                    <h3 className="text-sm font-bold text-slate-100 group-hover:text-red-400 transition-colors">
-                      {sample.title}
+                    <h3 className="mt-1 font-semibold text-sm text-slate-900 break-words">
+                      {template.title}
                     </h3>
-
-                    <p className="text-xs text-slate-400 mt-1 line-clamp-2">
-                      {sample.metadata.projectName || sample.metadata.title}
-                    </p>
-
-                    <div className="mt-3 flex flex-wrap gap-1.5 text-[10px] font-mono text-slate-300">
-                      <span className="bg-slate-900 px-2 py-0.5 rounded border border-slate-700">
-                        {sample.nodes.length} Poles/Structures
-                      </span>
-                      <span className="bg-slate-900 px-2 py-0.5 rounded border border-slate-700">
-                        {sample.edges.length} Spans
-                      </span>
-                      {sample.crossings.length > 0 && (
-                        <span className="bg-sky-950 text-sky-300 px-2 py-0.5 rounded border border-sky-800">
-                          {sample.crossings[0].type.toUpperCase()} CROSSING
-                        </span>
-                      )}
-                    </div>
+                    {template.metadata.location && (
+                      <p className="mt-1 text-xs text-slate-500 break-words">{template.metadata.location}</p>
+                    )}
                   </div>
-
-                  <div className="mt-4 pt-3 border-t border-slate-700/60 flex items-center justify-between">
-                    <span className="text-[11px] text-slate-400">
-                      Applicant: <strong className="text-slate-200">{sample.metadata.applicantName}</strong>
-                    </span>
-                    <button className="px-3 py-1 bg-red-600 group-hover:bg-red-500 text-white rounded-md text-xs font-semibold shadow-sm transition-colors">
-                      Load Blueprint
+                  <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-3">
+                    <button
+                      onClick={() => onSelectProject(template)}
+                      className="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold"
+                    >
+                      Use Template
                     </button>
+                    {deleteConfirmation === template.id ? (
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleDelete(template.id)}
+                          className="px-2.5 py-1.5 rounded-lg bg-red-600 text-white text-xs font-semibold"
+                        >
+                          Confirm delete
+                        </button>
+                        <button
+                          onClick={() => setDeleteConfirmation(null)}
+                          className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-xs"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => handleDelete(template.id)}
+                        title="Delete template"
+                        className="p-2 rounded-lg text-slate-500 hover:bg-red-50 hover:text-red-600"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
-                </div>
-              ))
-            : BLANK_TEMPLATES.map((tmpl) => (
-                <div
-                  key={tmpl.id}
-                  className="bg-slate-800/60 border border-slate-700/80 rounded-xl p-4 hover:border-slate-500 hover:bg-slate-800 transition-all flex flex-col justify-between group cursor-pointer"
-                  onClick={() => {
-                    onSelectProject(JSON.parse(JSON.stringify(tmpl)));
-                    onClose();
-                  }}
-                >
-                  <div>
-                    <div className="w-8 h-8 rounded-lg bg-slate-700 flex items-center justify-center text-slate-300 mb-2">
-                      <FilePlus2 className="w-4 h-4" />
-                    </div>
-                    <h3 className="text-sm font-bold text-slate-100 group-hover:text-white">
-                      {tmpl.title}
-                    </h3>
-                    <p className="text-xs text-slate-400 mt-1">
-                      {tmpl.metadata.title}
-                    </p>
-                  </div>
-
-                  <div className="mt-4 pt-3 border-t border-slate-700/60 flex justify-end">
-                    <button className="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-white rounded-md text-xs font-semibold transition-colors">
-                      Create Project
-                    </button>
-                  </div>
-                </div>
+                </article>
               ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

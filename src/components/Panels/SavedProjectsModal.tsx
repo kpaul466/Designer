@@ -14,11 +14,10 @@ import {
   getSavedProjectsCatalog,
   deleteProjectFromCatalog,
   duplicateProjectInCatalog,
-  saveProjectToCatalog,
+  saveProjectAsTemplate,
   exportProjectAsJson,
   importProjectFromJson,
 } from '../../services/localStorageService';
-import { BLANK_TEMPLATES } from '../../templates/sampleBlueprints';
 import {
   FolderOpen,
   Plus,
@@ -34,12 +33,14 @@ import {
   Check,
   HardDrive,
   AlertTriangle,
+  Layers,
 } from 'lucide-react';
 
 interface SavedProjectsModalProps {
   isOpen: boolean;
   activeProjectId: string;
   onOpenProject: (project: DrawingProject) => void;
+  onCreateNewDrawing: () => void;
   onClose: () => void;
 }
 
@@ -47,6 +48,7 @@ export const SavedProjectsModal: React.FC<SavedProjectsModalProps> = ({
   isOpen,
   activeProjectId,
   onOpenProject,
+  onCreateNewDrawing,
   onClose,
 }) => {
   const [catalog, setCatalog] = useState<DrawingProject[]>([]);
@@ -83,16 +85,17 @@ export const SavedProjectsModal: React.FC<SavedProjectsModalProps> = ({
   });
 
   const handleCreateNew = () => {
-    const newProj: DrawingProject = {
-      ...BLANK_TEMPLATES[0],
-      id: `project-${Date.now()}`,
-      title: `Electrical Distribution Drawing ${catalog.length + 1}`,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    saveProjectToCatalog(newProj);
-    onOpenProject(newProj);
-    onClose();
+    onCreateNewDrawing();
+  };
+
+  const handleSaveTemplate = (project: DrawingProject) => {
+    const result = saveProjectAsTemplate(project);
+    if (result.success) {
+      setSuccessMsg(result.message);
+      setTimeout(() => setSuccessMsg(null), 2500);
+    } else {
+      setErrorMsg(result.message);
+    }
   };
 
   const handleDuplicate = (id: string) => {
@@ -132,7 +135,12 @@ export const SavedProjectsModal: React.FC<SavedProjectsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+    <div
+      className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
       <div className="bg-slate-900 border border-slate-700 w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="p-4 px-6 border-b border-slate-800 flex items-center justify-between bg-slate-900/95 shrink-0">
@@ -322,6 +330,14 @@ export const SavedProjectsModal: React.FC<SavedProjectsModalProps> = ({
                       title="Duplicate this drawing"
                     >
                       <Copy className="w-3.5 h-3.5" />
+                    </button>
+
+                    <button
+                      onClick={() => handleSaveTemplate(proj)}
+                      className="p-2 hover:bg-amber-950/80 bg-slate-800 text-slate-300 hover:text-amber-300 rounded-xl transition-colors"
+                      title="Save this drawing as a reusable template"
+                    >
+                      <Layers className="w-3.5 h-3.5" />
                     </button>
 
                     <button

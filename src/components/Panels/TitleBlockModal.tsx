@@ -34,7 +34,12 @@ export const TitleBlockModal: React.FC<TitleBlockModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+    <div
+      className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
       <div className="bg-slate-900 border border-slate-700 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/90">
@@ -158,33 +163,33 @@ export const TitleBlockModal: React.FC<TitleBlockModalProps> = ({
 
           {/* Engineering Sign-offs */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div>
-              <label className="text-[10px] text-slate-400 block mb-1">Prepared By (Surveyor)</label>
-              <input
-                type="text"
-                value={formData.preparedBy}
-                onChange={(e) => handleChange('preparedBy', e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-md px-2.5 py-1 text-slate-100"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] text-slate-400 block mb-1">Checked By (JE / AE)</label>
-              <input
-                type="text"
-                value={formData.checkedBy}
-                onChange={(e) => handleChange('checkedBy', e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-md px-2.5 py-1 text-slate-100"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] text-slate-400 block mb-1">Approved By (DE)</label>
-              <input
-                type="text"
-                value={formData.approvedBy}
-                onChange={(e) => handleChange('approvedBy', e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-md px-2.5 py-1 text-slate-100"
-              />
-            </div>
+            {([
+              ['preparedBy', 'Prepared By (Surveyor)', 'preparedByOffice'],
+              ['checkedBy', 'Checked By (JE / AE)', 'checkedByOffice'],
+              ['approvedBy', 'Approved By (DE)', 'approvedByOffice'],
+            ] as const).map(([designationField, designationLabel, officeField]) => (
+              <div key={designationField} className="space-y-2">
+                <div>
+                  <label className="text-[10px] text-slate-400 block mb-1">{designationLabel}</label>
+                  <input
+                    type="text"
+                    value={formData[designationField]}
+                    onChange={(e) => handleChange(designationField, e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-md px-2.5 py-1 text-slate-100"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-slate-400 block mb-1">Office Name</label>
+                  <input
+                    type="text"
+                    value={formData[officeField] || ''}
+                    onChange={(e) => handleChange(officeField, e.target.value)}
+                    placeholder="e.g. Falakata CCC"
+                    className="w-full bg-slate-800 border border-slate-700 rounded-md px-2.5 py-1 text-slate-100"
+                  />
+                </div>
+              </div>
+            ))}
           </div>
 
           <div className="grid grid-cols-3 gap-3">

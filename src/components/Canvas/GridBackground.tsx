@@ -37,7 +37,7 @@ export const GridBackground: React.FC<GridBackgroundProps> = ({
   }
 
   const majorSize = gridSize * 5;
-  // If map is visible, use high-contrast semi-transparent lines/dots so they don't block satellite/road map
+  // If map is visible, use high-contrast semi-transparent lines/dots so they don't block the map.
   const strokeMinor = isMapVisible
     ? 'rgba(255, 255, 255, 0.25)'
     : isDarkCanvas

@@ -10,7 +10,7 @@
  * - Direct Save to LocalStorage (Ctrl+S) & ISO A4 PDF Export
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Building2,
   Check,
@@ -32,7 +32,12 @@ import {
   Undo2,
   Zap,
 } from 'lucide-react';
-import { DrawingProject, SheetSizeType } from '../../types/electrical';
+import {
+  DrawingProject,
+  MapFeatureSelection,
+  MapRoadCandidate,
+  SheetSizeType,
+} from '../../types/electrical';
 import { ALL_PAGE_SIZES, PAGE_SIZE_DEFINITIONS } from '../../constants/pageSizes';
 
 interface TopBarProps {
@@ -55,14 +60,22 @@ interface TopBarProps {
   onToggleMap: () => void;
   mapOpacity: number;
   onMapOpacityChange: (opacity: number) => void;
-  mapType: 'satellite' | 'roadmap' | 'terrain' | 'osm';
-  onMapTypeChange: (type: 'satellite' | 'roadmap' | 'terrain' | 'osm') => void;
+  mapFeatures: MapFeatureSelection;
+  onMapFeatureChange: (key: keyof MapFeatureSelection, enabled: boolean) => void;
+  availableMapRoads: MapRoadCandidate[];
+  selectedMapRoadIds: string[];
+  onToggleMapRoadSelection: (road: MapRoadCandidate) => void;
+  onAddSelectedMapRoads: () => void;
+  mapLocked: boolean;
+  onToggleMapLock: () => void;
   mapLayerPosition?: 'underlay' | 'overlay';
   onToggleMapLayerPosition?: () => void;
   onOpenTemplates: () => void;
+  onCreateDrawing: () => void;
   onOpenProjectSetup: () => void;
   onOpenTitleBlock: () => void;
   onOpenExport: () => void;
+  onOpenOutputSettings: () => void;
   onOpenShortcuts: () => void;
   onSave: () => void;
   isSaving: boolean;
@@ -91,14 +104,22 @@ export const TopBar: React.FC<TopBarProps> = ({
   onToggleMap,
   mapOpacity,
   onMapOpacityChange,
-  mapType,
-  onMapTypeChange,
+  mapFeatures,
+  onMapFeatureChange,
+  availableMapRoads,
+  selectedMapRoadIds,
+  onToggleMapRoadSelection,
+  onAddSelectedMapRoads,
+  mapLocked,
+  onToggleMapLock,
   mapLayerPosition = 'underlay',
   onToggleMapLayerPosition,
   onOpenTemplates,
+  onCreateDrawing,
   onOpenProjectSetup,
   onOpenTitleBlock,
   onOpenExport,
+  onOpenOutputSettings,
   onOpenShortcuts,
   onSave,
   isSaving,
@@ -108,17 +129,41 @@ export const TopBar: React.FC<TopBarProps> = ({
 }) => {
   const [showMapMenu, setShowMapMenu] = useState(false);
   const [showPageSizeMenu, setShowPageSizeMenu] = useState(false);
+  const pageSizeMenuRef = useRef<HTMLDivElement>(null);
+  const mapMenuRef = useRef<HTMLDivElement>(null);
 
   const currentPageDef = PAGE_SIZE_DEFINITIONS[project.metadata.sheetSize || 'A4'] || PAGE_SIZE_DEFINITIONS.A4;
 
+  useEffect(() => {
+    if (!showPageSizeMenu) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (pageSizeMenuRef.current && !pageSizeMenuRef.current.contains(event.target as Node)) {
+        setShowPageSizeMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showPageSizeMenu]);
+
+  useEffect(() => {
+    if (!showMapMenu) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (mapMenuRef.current && !mapMenuRef.current.contains(event.target as Node)) {
+        setShowMapMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showMapMenu]);
+
   return (
-    <header className="h-14 bg-white border-b border-slate-200 px-3 sm:px-4 flex items-center justify-between text-slate-700 select-none z-30 shrink-0 shadow-xs">
+    <header className="min-h-14 h-auto max-h-[40dvh] overflow-y-auto bg-white border-b border-slate-200 px-2 sm:px-4 py-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-slate-700 select-none z-30 shrink-0 shadow-xs">
       {/* Zone 1: Wordmark, Project Breadcrumb, & Setup */}
-      <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0 max-w-full">
         <div
           className="flex items-center gap-2 cursor-pointer hover:opacity-90 transition-opacity"
           onClick={onOpenTemplates}
-          title="Browse Sample Templates"
+          title="Browse saved drawing templates"
         >
           <div className="w-8 h-8 rounded-lg bg-red-600 flex items-center justify-center text-white shadow-xs">
             <Zap className="w-5 h-5" />
@@ -132,6 +177,15 @@ export const TopBar: React.FC<TopBarProps> = ({
             </div>
           </div>
         </div>
+
+        <button
+          onClick={onCreateDrawing}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white transition-colors"
+          title="Create a new blank drawing"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">New Drawing</span>
+        </button>
 
         <div className="h-6 w-px bg-slate-200 hidden md:block" />
 
@@ -157,12 +211,12 @@ export const TopBar: React.FC<TopBarProps> = ({
           </div>
         </button>
 
-        {/* Page Size Selector (Locks Canvas Size and Map Size 1:1) */}
-        <div className="relative">
+        {/* Page Size Selector (Locks the drawing sheet to the selected page size) */}
+        <div ref={pageSizeMenuRef} className="relative">
           <button
             onClick={() => setShowPageSizeMenu(!showPageSizeMenu)}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-sky-50 hover:bg-sky-100 text-xs font-semibold text-sky-800 border border-sky-200 transition-colors"
-            title="Select Page Size (Canvas and Map are permanently locked 1:1 to this size)"
+            title="Select page size; the drawing sheet stays fixed to this size"
           >
             <FileText className="w-3.5 h-3.5 text-sky-600" />
             <span className="font-bold">{currentPageDef.shortLabel}</span>
@@ -218,12 +272,12 @@ export const TopBar: React.FC<TopBarProps> = ({
       </div>
 
       {/* Zone 2: CAD Drafting & View Controls */}
-      <div className="flex items-center gap-1 sm:gap-1.5">
+      <div className="flex flex-wrap items-center gap-1 sm:gap-1.5 min-w-0 max-w-full">
         {/* Templates Picker */}
         <button
           onClick={onOpenTemplates}
-          className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-xs font-semibold text-slate-700 border border-slate-200 transition-colors"
-          title="Browse real-world sample drawings & starter templates"
+          className="hidden md:flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-xs font-semibold text-slate-700 border border-slate-200 transition-colors"
+          title="Browse saved drawing templates"
         >
           <FolderOpen className="w-3.5 h-3.5 text-amber-600" />
           <span className="hidden md:inline">Templates</span>
@@ -255,7 +309,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         <button
           onClick={onDeleteSelected}
           disabled={!hasSelection}
-          className="p-2 rounded-lg text-slate-500 hover:text-red-600 hover:bg-red-50 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+          className="hidden sm:block p-2 rounded-lg text-slate-500 hover:text-red-600 hover:bg-red-50 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
           title="Delete Selected Items (Del / Backspace)"
         >
           <Trash2 className="w-4 h-4" />
@@ -298,7 +352,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         </div>
 
         {/* GIS Map Controls Dropdown */}
-        <div className="relative">
+        <div ref={mapMenuRef} className="relative">
           <button
             onClick={() => setShowMapMenu(!showMapMenu)}
             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
@@ -313,7 +367,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           </button>
 
           {showMapMenu && (
-            <div className="absolute right-0 mt-2 w-72 bg-white border border-slate-200 rounded-2xl shadow-2xl p-3.5 z-50 text-slate-800 text-xs">
+            <div className="absolute right-0 mt-2 w-72 max-h-[80vh] overflow-y-auto bg-white border border-slate-200 rounded-2xl shadow-2xl p-3.5 z-50 text-slate-800 text-xs">
               <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-slate-100">
                 <span className="font-bold flex items-center gap-1.5 text-slate-900">
                   <Map className="w-4 h-4 text-sky-600" />
@@ -329,43 +383,93 @@ export const TopBar: React.FC<TopBarProps> = ({
                 </button>
               </div>
 
-              {/* Map Layer Type */}
               <div className="mb-3">
                 <label className="text-[11px] text-slate-500 block mb-1 font-semibold">Map Imagery</label>
-                <div className="grid grid-cols-2 gap-1 p-1 bg-slate-50 rounded-xl border border-slate-200">
-                  <button
-                    onClick={() => onMapTypeChange('satellite')}
-                    className={`py-1.5 text-xs rounded-lg font-medium ${
-                      mapType === 'satellite' ? 'bg-white text-slate-900 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    🛰️ Satellite
-                  </button>
-                  <button
-                    onClick={() => onMapTypeChange('roadmap')}
-                    className={`py-1.5 text-xs rounded-lg font-medium ${
-                      mapType === 'roadmap' ? 'bg-white text-slate-900 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    🗺️ Road Map
-                  </button>
-                  <button
-                    onClick={() => onMapTypeChange('osm')}
-                    className={`py-1.5 text-xs rounded-lg font-medium ${
-                      mapType === 'osm' ? 'bg-white text-slate-900 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    🌐 OpenStreetMap
-                  </button>
-                  <button
-                    onClick={() => onMapTypeChange('terrain')}
-                    className={`py-1.5 text-xs rounded-lg font-medium ${
-                      mapType === 'terrain' ? 'bg-white text-slate-900 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    🏔️ Topo Terrain
-                  </button>
+                <div className="px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700">
+                  OpenStreetMap
                 </div>
+              </div>
+
+              <div className="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="mb-2 text-[11px] font-semibold text-slate-600">
+                  Local map features · canvas & PDF
+                </div>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+                  {([
+                    ['roads', 'Road geometry'],
+                    ['rivers', 'Rivers & waterways'],
+                    ['streetNames', 'Street names'],
+                    ['placeNames', 'Buildings & places'],
+                    ['crossings', 'Road/river crossings'],
+                  ] as const).map(([key, label]) => (
+                    <label key={key} className="flex items-center gap-2 text-[11px] text-slate-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={mapFeatures[key]}
+                        onChange={(event) => onMapFeatureChange(key, event.target.checked)}
+                        className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                      />
+                      <span>{label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mb-3 rounded-xl border border-slate-200 p-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-slate-700">Add street outlines to canvas</span>
+                  <span className="text-[10px] text-slate-500">{availableMapRoads.length} available</span>
+                </div>
+                {availableMapRoads.length > 0 ? (
+                  <div className="max-h-32 space-y-1 overflow-y-auto">
+                    {availableMapRoads.map((road) => (
+                      <label key={road.id} className="flex items-center gap-2 text-[11px] text-slate-700 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedMapRoadIds.includes(road.id)}
+                          onChange={() => onToggleMapRoadSelection(road)}
+                          className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                        />
+                        <span className="truncate">{road.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[10px] leading-relaxed text-slate-500">
+                    Turn on the map and zoom in to load selectable OpenStreetMap road outlines.
+                  </p>
+                )}
+                <button
+                  type="button"
+                  disabled={selectedMapRoadIds.length === 0}
+                  onClick={onAddSelectedMapRoads}
+                  className="mt-2 w-full rounded-lg bg-sky-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+                >
+                  Add selected streets ({selectedMapRoadIds.length})
+                </button>
+              </div>
+
+              <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-slate-200 px-3 py-2">
+                <div>
+                  <div className="text-[11px] font-semibold text-slate-700">
+                    {mapLocked ? 'Map view locked' : 'Map view editable'}
+                  </div>
+                  <div className="text-[10px] text-slate-500">
+                    {mapLocked ? 'Saved with this drawing; unlock to reposition' : 'Pan or zoom, then lock to save this view'}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={onToggleMapLock}
+                  aria-pressed={mapLocked}
+                  className={`shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-bold ${
+                    mapLocked
+                      ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                      : 'bg-amber-100 text-amber-800 hover:bg-amber-200'
+                  }`}
+                >
+                  {mapLocked ? 'Unlock map' : 'Lock map'}
+                </button>
               </div>
 
               {/* Layer Position */}
@@ -417,7 +521,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         {/* Keyboard Shortcuts Dialog Button */}
         <button
           onClick={onOpenShortcuts}
-          className="p-2 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors"
+          className="hidden sm:block p-2 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors"
           title="CAD Keyboard Shortcuts (?)"
         >
           <Keyboard className="w-4 h-4" />
@@ -426,7 +530,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         {/* Canvas Dark/Light Toggle */}
         <button
           onClick={onToggleDarkCanvas}
-          className="p-2 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors"
+          className="hidden sm:block p-2 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors"
           title="Toggle Canvas Theme (White Paper / Dark Slate)"
         >
           {isDarkCanvas ? <Sun className="w-4 h-4 text-amber-500" /> : <Moon className="w-4 h-4 text-slate-600" />}
@@ -434,7 +538,7 @@ export const TopBar: React.FC<TopBarProps> = ({
       </div>
 
       {/* Zone 3: Primary Actions (Save to LocalStorage & Export A4 PDF) */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1 sm:gap-2 max-w-full">
         {/* LocalStorage Save (Ctrl+S) */}
         <button
           onClick={onSave}
@@ -443,7 +547,16 @@ export const TopBar: React.FC<TopBarProps> = ({
           title="Save Drawing to Browser Local Storage (Ctrl+S)"
         >
           <Save className="w-3.5 h-3.5 text-white" />
-          <span>{isSaving ? 'Saved!' : 'Save (Ctrl+S)'}</span>
+          <span className="hidden sm:inline">{isSaving ? 'Saved!' : 'Save (Ctrl+S)'}</span>
+        </button>
+
+        <button
+          onClick={onOpenOutputSettings}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-800 text-xs font-semibold border border-sky-200 transition-colors whitespace-nowrap"
+          title="Configure drawing canvas and PDF output options"
+        >
+          <Settings2 className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">PDF / Canvas Setup</span>
         </button>
 
         {/* Export A4 PDF */}
@@ -453,7 +566,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           title="Export A4 Landscape PDF with Title Block, Index & BOQ Schedule"
         >
           <Download className="w-4 h-4" />
-          <span>Export A4 PDF</span>
+          <span className="hidden sm:inline">Export A4 PDF</span>
         </button>
       </div>
     </header>

@@ -6,32 +6,105 @@
  * - Bottom Title Block: Turnkey Contractor, Applicant Details, Drawing No., Revision, and 3-tier Engineering Sign-Off Grid
  */
 
-import React, { useRef, useState } from 'react';
-import { DrawingProject } from '../../types/electrical';
+import React, { useEffect, useRef, useState } from 'react';
+import { DrawingProject, MapFeatureSelection } from '../../types/electrical';
 import { calculateBoq, generateIndexEntries } from '../../utils/boqCalculator';
 import { exportToA4Pdf, exportToJson, exportToPng, exportToSvg } from '../../utils/pdfExport';
-import { Check, Download, FileCode, FileText, Image, Printer, X, Zap } from 'lucide-react';
+import { Check, Download, FileCode, FileText, Image, Printer, Settings2, X, Zap } from 'lucide-react';
 import { ConductorRenderer } from '../Canvas/ConductorRenderer';
 import { CrossingRenderer } from '../Canvas/CrossingRenderer';
 import { NodeRenderer } from '../Canvas/NodeRenderer';
 import { StayRenderer } from '../Canvas/StayRenderer';
+import { MapUnderlay } from '../Canvas/MapUnderlay';
+import { getCanvasBoundsForPageSize } from '../../constants/pageSizes';
 
 interface ExportModalProps {
   isOpen: boolean;
+  openSettings: boolean;
   project: DrawingProject;
+  mapFeatures: MapFeatureSelection;
+  showMap: boolean;
+  mapOpacity: number;
+  mapLayerPosition: 'underlay' | 'overlay';
+  onMapVisibilityChange: (visible: boolean) => void;
   onClose: () => void;
 }
 
+const PDF_ATTRIBUTES = [
+  { key: 'title', label: 'Drawing title' },
+  { key: 'projectName', label: 'Project name' },
+  { key: 'drawingNo', label: 'Drawing number' },
+  { key: 'applicationNo', label: 'Application number' },
+  { key: 'poNumber', label: 'PO number' },
+  { key: 'workOrderNo', label: 'Work order number' },
+  { key: 'agencyName', label: 'Agency name' },
+  { key: 'subDivision', label: 'Sub-division' },
+  { key: 'cccName', label: 'CCC name' },
+  { key: 'divisionName', label: 'Division name' },
+  { key: 'location', label: 'Location' },
+  { key: 'coordinates', label: 'Coordinates' },
+  { key: 'date', label: 'Working date' },
+  { key: 'scale', label: 'Scale' },
+  { key: 'revision', label: 'Revision' },
+  { key: 'applicantName', label: 'Applicant name' },
+  { key: 'applicantPhone', label: 'Applicant phone' },
+  { key: 'applicantAddress', label: 'Applicant address' },
+  { key: 'preparedBy', label: 'Prepared by' },
+  { key: 'preparedByOffice', label: 'Prepared by office' },
+  { key: 'checkedBy', label: 'Checked by' },
+  { key: 'checkedByOffice', label: 'Checked by office' },
+  { key: 'approvedBy', label: 'Approved by' },
+  { key: 'approvedByOffice', label: 'Approved by office' },
+] as const;
+
+type PdfAttributeKey = (typeof PDF_ATTRIBUTES)[number]['key'];
+
 export const ExportModal: React.FC<ExportModalProps> = ({
   isOpen,
+  openSettings,
   project,
+  mapFeatures,
+  showMap,
+  mapOpacity,
+  mapLayerPosition,
+  onMapVisibilityChange,
   onClose,
 }) => {
   const sheetRef = useRef<HTMLDivElement>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  const [previewScale, setPreviewScale] = useState(0.5);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [exportStatus, setExportStatus] = useState<string>('');
   const [downloadSuccess, setDownloadSuccess] = useState(false);
+  const [showPdfSettings, setShowPdfSettings] = useState(false);
+  const [designView, setDesignView] = useState<'engineering' | 'drawing'>('engineering');
+  const [selectedAttributes, setSelectedAttributes] = useState<PdfAttributeKey[]>(
+    PDF_ATTRIBUTES.map(({ key }) => key)
+  );
+  const [includeDrawingIndex, setIncludeDrawingIndex] = useState(true);
+  const [includeBoq, setIncludeBoq] = useState(true);
+  const [includeTitleBlock, setIncludeTitleBlock] = useState(true);
+
+  useEffect(() => {
+    if (isOpen && openSettings) setShowPdfSettings(true);
+  }, [isOpen, openSettings]);
+
+  useEffect(() => {
+    const preview = previewRef.current;
+    if (!preview) return;
+
+    const updateScale = () => {
+      const availableWidth = preview.clientWidth - 32;
+      const availableHeight = preview.clientHeight - 32;
+      setPreviewScale(Math.max(0.1, Math.min(1, availableWidth / 1050, availableHeight / 742)));
+    };
+
+    const observer = new ResizeObserver(updateScale);
+    observer.observe(preview);
+    updateScale();
+    return () => observer.disconnect();
+  }, [isOpen, showPdfSettings]);
 
   if (!isOpen) return null;
 
@@ -47,15 +120,107 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     project.edges,
     project.stays
   );
+  const metadata = project.metadata;
+  const nonEmpty = (value?: string) => {
+    const cleanValue = value?.trim() || '';
+    if (/^enter\b/i.test(cleanValue) || cleanValue === 'Surveyor Name' || cleanValue === '9800000000') {
+      return '';
+    }
+    return cleanValue;
+  };
+  const isAttributeSelected = (key: PdfAttributeKey) => selectedAttributes.includes(key);
+  const fieldRows = (...fields: Array<[string, string | undefined, PdfAttributeKey]>): Array<[string, string]> =>
+    fields.flatMap(([label, value, key]) => {
+      const cleanValue = nonEmpty(value);
+      return cleanValue && isAttributeSelected(key) ? [[label, cleanValue]] : [];
+    });
+  const applicantDetails = fieldRows(
+    ['APPLICANT', metadata.applicantName, 'applicantName'],
+    ['PHONE', metadata.applicantPhone, 'applicantPhone'],
+    ['ADDRESS', metadata.applicantAddress, 'applicantAddress']
+  );
+  const referenceDetails = fieldRows(
+    ['APPLICATION NO', metadata.applicationNo, 'applicationNo'],
+    ['PO NUMBER', metadata.poNumber, 'poNumber'],
+    ['WORK ORDER NO', metadata.workOrderNo, 'workOrderNo'],
+    ['SUB-DIVISION', metadata.subDivision, 'subDivision'],
+    ['CCC', metadata.cccName, 'cccName'],
+    ['DIVISION', metadata.divisionName, 'divisionName']
+  );
+  const signOffs = [
+    {
+      label: 'PREPARED BY',
+      designation: isAttributeSelected('preparedBy') ? nonEmpty(metadata.preparedBy) : '',
+      office: isAttributeSelected('preparedByOffice') ? nonEmpty(metadata.preparedByOffice) : '',
+    },
+    {
+      label: 'CHECKED BY',
+      designation: isAttributeSelected('checkedBy') ? nonEmpty(metadata.checkedBy) : '',
+      office: isAttributeSelected('checkedByOffice') ? nonEmpty(metadata.checkedByOffice) : '',
+    },
+    {
+      label: 'APPROVED BY',
+      designation: isAttributeSelected('approvedBy') ? nonEmpty(metadata.approvedBy) : '',
+      office: isAttributeSelected('approvedByOffice') ? nonEmpty(metadata.approvedByOffice) : '',
+    },
+  ].filter((signOff) => signOff.designation || signOff.office);
+  const showEngineeringSections = designView === 'engineering';
+  const showDrawingIndex = showEngineeringSections && includeDrawingIndex;
+  const showBoq = showEngineeringSections && includeBoq;
+  const showSidebar = showDrawingIndex || showBoq;
+  const pdfGeoLocation = project.geoLocation ?? {
+    name: metadata.location || 'Falakata Distribution Feeder',
+    lat: 26.7124,
+    lng: 89.2845,
+  };
+  const showPdfMap = showMap;
+  const pdfMapBounds = {
+    ...(project.canvasBounds ?? getCanvasBoundsForPageSize(metadata.sheetSize)),
+    x: 0,
+    y: 0,
+    width: 1000,
+    height: 600,
+  };
+  const pdfMapUnderlay = showPdfMap ? (
+    <MapUnderlay
+      isVisible
+      opacity={mapOpacity}
+      locationName={metadata.location}
+      geoLocation={pdfGeoLocation}
+      zoom={1}
+      fitZoom={1}
+      panX={0}
+      panY={0}
+      isLocked
+      layerPosition={mapLayerPosition}
+      canvasBounds={pdfMapBounds}
+      mapFeatures={mapFeatures}
+      printMode
+      mapZoomLevel={project.mapSettings?.zoomLevel ?? 16}
+    />
+  ) : null;
+  const agencyName = isAttributeSelected('agencyName') ? nonEmpty(metadata.agencyName) : '';
+  const drawingTitle = isAttributeSelected('title') ? nonEmpty(metadata.title) : '';
+  const projectName = isAttributeSelected('projectName') ? nonEmpty(metadata.projectName) : '';
+  const drawingNumber = isAttributeSelected('drawingNo') ? nonEmpty(metadata.drawingNo) : '';
+  const location = isAttributeSelected('location') ? nonEmpty(metadata.location) : '';
+  const coordinates = isAttributeSelected('coordinates') ? nonEmpty(metadata.coordinates) : '';
+  const workingDate = isAttributeSelected('date') ? nonEmpty(metadata.date) : '';
+  const scale = isAttributeSelected('scale') ? nonEmpty(metadata.scale) : '';
+  const revision = isAttributeSelected('revision') ? nonEmpty(metadata.revision) : '';
 
   // Compute bounding box of drawing objects to auto-scale inside the A4 sheet viewport
   const allX = [
     ...project.nodes.map((n) => n.x),
     ...project.crossings.map((c) => c.x),
+    ...project.annotations.map((annotation) => annotation.x),
+    ...(project.mapRoadOutlines || []).flatMap((road) => road.points.map((point) => point.x)),
   ];
   const allY = [
     ...project.nodes.map((n) => n.y),
     ...project.crossings.map((c) => c.y),
+    ...project.annotations.map((annotation) => annotation.y),
+    ...(project.mapRoadOutlines || []).flatMap((road) => road.points.map((point) => point.y)),
   ];
 
   const minX = allX.length > 0 ? Math.min(...allX) - 60 : 0;
@@ -68,15 +233,19 @@ export const ExportModal: React.FC<ExportModalProps> = ({
 
   const handleDownloadPdf = async () => {
     if (!sheetRef.current) return;
+    const sheet = sheetRef.current;
+    const previousZoom = sheet.style.zoom;
     try {
       setIsExportingPdf(true);
-      await exportToA4Pdf(sheetRef.current, project, (status) => setExportStatus(status));
+      sheet.style.zoom = '1';
+      await exportToA4Pdf(sheet, project, (status) => setExportStatus(status));
       setDownloadSuccess(true);
       setTimeout(() => setDownloadSuccess(false), 3000);
     } catch (err) {
       console.error(err);
       alert('Failed to generate PDF. Please try printing to PDF using the Print button.');
     } finally {
+      sheet.style.zoom = previousZoom;
       setIsExportingPdf(false);
       setExportStatus('');
     }
@@ -94,7 +263,14 @@ export const ExportModal: React.FC<ExportModalProps> = ({
 
   const handleDownloadPng = async () => {
     if (sheetRef.current) {
-      await exportToPng(sheetRef.current, `${project.metadata.drawingNo || 'powerline'}.png`);
+      const sheet = sheetRef.current;
+      const previousZoom = sheet.style.zoom;
+      try {
+        sheet.style.zoom = '1';
+        await exportToPng(sheet, `${project.metadata.drawingNo || 'powerline'}.png`);
+      } finally {
+        sheet.style.zoom = previousZoom;
+      }
     }
   };
 
@@ -103,12 +279,17 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex flex-col items-center justify-center p-2 sm:p-4 overflow-y-auto">
+    <div
+      className="fixed inset-0 z-50 bg-slate-100 flex flex-col overflow-hidden"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
       {/* Container (Clean Light Theme Modal) */}
-      <div className="bg-white border border-slate-200 w-full max-w-6xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[96vh]">
+      <div className="bg-white w-full h-full overflow-hidden flex flex-col">
         {/* Top Header */}
-        <div className="p-3.5 px-5 border-b border-slate-200 flex items-center justify-between bg-slate-50 shrink-0">
-          <div className="flex items-center gap-3">
+        <div className="p-2 sm:p-3.5 sm:px-5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 bg-slate-50 shrink-0">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
             <div className="w-8 h-8 rounded-lg bg-red-600 flex items-center justify-center text-white shadow-xs">
               <Download className="w-4 h-4" />
             </div>
@@ -120,13 +301,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                 </span>
               </h2>
               <p className="text-[11px] text-slate-500">
-                Standard electrical engineering layout with Authority Header, Drawing Index, BOQ Schedule, and Title Block.
+                Clean A4 landscape sheet with populated project details, drawing index, and work quantities.
               </p>
             </div>
           </div>
 
           {/* Action Buttons */}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-1.5 max-w-full">
             <button
               onClick={handlePrint}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold border border-slate-200 transition-colors"
@@ -143,6 +324,21 @@ export const ExportModal: React.FC<ExportModalProps> = ({
             >
               <Download className="w-3.5 h-3.5" />
               <span>{isExportingPdf ? exportStatus || 'Exporting...' : 'Download A4 PDF'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowPdfSettings((visible) => !visible)}
+              aria-expanded={showPdfSettings}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
+                showPdfSettings
+                  ? 'bg-sky-100 text-sky-800 border-sky-300'
+                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+              }`}
+              title="Configure PDF attributes and design view"
+            >
+              <Settings2 className="w-3.5 h-3.5" />
+              <span className="hidden lg:inline">PDF Setup</span>
             </button>
 
             <div className="h-5 w-px bg-slate-200 mx-1 hidden sm:block" />
@@ -188,68 +384,206 @@ export const ExportModal: React.FC<ExportModalProps> = ({
           </div>
         )}
 
-        {/* Preview Area: Renders the precise A4 Landscape Sheet */}
-        <div className="flex-1 bg-slate-100 p-4 sm:p-6 overflow-auto flex items-center justify-center">
+        <div className="flex-1 min-h-0 flex flex-col md:flex-row overflow-hidden">
+          {showPdfSettings && (
+            <section
+              aria-label="PDF output settings"
+              className="shrink-0 w-full md:w-[320px] md:max-w-[40vw] md:min-w-[260px] max-h-[38vh] md:max-h-none md:h-full overflow-y-auto border-b md:border-b-0 md:border-r border-slate-200 bg-white px-4 py-4"
+            >
+            <div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">PDF output setup</h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Choose a sheet layout and the project details to print. Empty values are always omitted.
+                </p>
+              </div>
+              <div className="mt-3 flex flex-col items-stretch gap-2 text-xs">
+                <span className="font-semibold text-slate-600">Design view</span>
+                <button
+                  type="button"
+                  onClick={() => setDesignView('engineering')}
+                  aria-pressed={designView === 'engineering'}
+                  className={`px-3 py-1.5 rounded-lg border font-semibold ${
+                    designView === 'engineering'
+                      ? 'bg-sky-600 border-sky-600 text-white'
+                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  Engineering sheet
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDesignView('drawing')}
+                  aria-pressed={designView === 'drawing'}
+                  className={`px-3 py-1.5 rounded-lg border font-semibold ${
+                    designView === 'drawing'
+                      ? 'bg-sky-600 border-sky-600 text-white'
+                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  Drawing focus
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-4">
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                    Project attributes
+                  </h4>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedAttributes(PDF_ATTRIBUTES.map(({ key }) => key))}
+                      className="text-[11px] font-semibold text-sky-700 hover:text-sky-900"
+                    >
+                      Select all
+                    </button>
+                    <span className="text-slate-300">·</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedAttributes([])}
+                      className="text-[11px] font-semibold text-slate-500 hover:text-slate-800"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 gap-y-2">
+                  {PDF_ATTRIBUTES.map(({ key, label }) => (
+                    <label key={key} className="flex items-center gap-2 text-[11px] text-slate-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedAttributes.includes(key)}
+                        onChange={(event) => {
+                          setSelectedAttributes((current) =>
+                            event.target.checked
+                              ? [...current, key]
+                              : current.filter((attribute) => attribute !== key)
+                          );
+                        }}
+                        className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                      />
+                      <span>{label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {designView === 'engineering' && (
+                <div className="border-t border-slate-100 pt-3">
+                  <h4 className="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-2">
+                    Sheet sections
+                  </h4>
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-2 text-[11px] text-slate-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={includeDrawingIndex}
+                        onChange={(event) => setIncludeDrawingIndex(event.target.checked)}
+                        className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                      />
+                      Drawing index / legend
+                    </label>
+                    <label className="flex items-center gap-2 text-[11px] text-slate-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={includeBoq}
+                        onChange={(event) => setIncludeBoq(event.target.checked)}
+                        className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                      />
+                      Work quantities (BOQ)
+                    </label>
+                    <label className="flex items-center gap-2 text-[11px] text-slate-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={includeTitleBlock}
+                        onChange={(event) => setIncludeTitleBlock(event.target.checked)}
+                        className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                      />
+                      Project title block
+                    </label>
+                  </div>
+                </div>
+              )}
+              <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showMap}
+                  onChange={(event) => onMapVisibilityChange(event.target.checked)}
+                  className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                />
+                <span>Show map on canvas & PDF</span>
+              </label>
+            </div>
+            </section>
+          )}
+
+          {/* Preview Area: Renders the precise A4 Landscape Sheet */}
+          <div
+            ref={previewRef}
+            className="flex-1 min-w-0 min-h-0 bg-slate-200 p-2 sm:p-4 overflow-auto flex items-center justify-center"
+          >
           {/* THE OFFICIAL A4 LANDSCAPE SHEET (Aspect Ratio ~ 1.414, 297mm x 210mm) */}
           <div
             ref={sheetRef}
             className="print-sheet bg-white text-black w-[1050px] h-[742px] shrink-0 shadow-xl relative flex flex-col font-sans select-none overflow-hidden"
             style={{
               padding: '12px',
+              zoom: previewScale,
             }}
           >
             {/* Outer & Inner Engineering CAD Border Frame */}
             <div className="w-full h-full border-[2.5px] border-black flex flex-col relative p-1.5">
               <div className="w-full h-full border border-black flex flex-col relative">
 
-                {/* 1. TOP HEADER: Utility Authority, Scheme & Distribution Sub-Station Banner */}
-                <div className="h-18 border-b border-black flex justify-between items-start px-3 py-1.5 text-[10px] leading-tight shrink-0 bg-white">
-                  {/* Left: Discom & Office Authority */}
-                  <div className="space-y-0.5 max-w-[280px]">
-                    <div className="font-extrabold text-[10.5px] uppercase tracking-tight text-black">
-                      WEST BENGAL STATE ELECTRICITY DISTRIBUTION CO. LTD.
-                    </div>
-                    <div>
-                      <strong>OFFICE: </strong>
-                      <span>{project.metadata.subDivision || 'Falakata Sub-Division'}, {project.metadata.cccName || 'Falakata CCC'}</span>
-                    </div>
-                    <div>
-                      <strong>SCHEME: </strong>
-                      <span className="font-semibold text-gray-800">RDSS / INFRASTRUCTURE STRENGTHENING</span>
-                    </div>
-                    <div>
-                      <strong>ESTIMATE / LOA NO: </strong>
-                      <span className="font-mono font-bold">{project.metadata.poNumber || 'WBSEDCL/LOA/2026/094'}</span>
-                    </div>
+                {/* 1. TOP HEADER: Only populated project details are printed. */}
+                <div className="min-h-[72px] border-b border-black grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] items-stretch text-[9px] leading-tight shrink-0 bg-white">
+                  <div className="min-w-0 flex flex-col justify-center gap-1 px-3 py-2">
+                    {(drawingTitle || projectName) && (
+                      <div className="text-[12px] font-black uppercase tracking-wider text-black break-words">
+                        {drawingTitle || projectName}
+                      </div>
+                    )}
+                    {location && (
+                      <div className="text-[10px] text-gray-700 font-semibold break-words">
+                        LOCATION: {location}
+                      </div>
+                    )}
+                    {workingDate && (
+                      <div className="text-[9px] text-gray-700">
+                        <strong>WORKING DATE: </strong>{workingDate}
+                      </div>
+                    )}
+                    {coordinates && (
+                      <div className="text-[8px] text-gray-600 break-words">
+                        COORDINATES: {coordinates}
+                      </div>
+                    )}
                   </div>
 
-                  {/* Center: Network Corridor & Feeder Details */}
-                  <div className="text-center px-2 flex-1 max-w-[420px]">
-                    <div className="text-[12px] font-black uppercase tracking-wider text-black">
-                      11 kV & LT DISTRIBUTION LINE NETWORK ROUTE PLAN
+                  <div className="min-w-0 border-l border-black grid grid-cols-[minmax(0,1fr)_auto]">
+                    <div className="grid grid-cols-2 content-center gap-x-3 gap-y-1 px-2 py-1.5 text-[8px]">
+                      {referenceDetails.map(([label, value]) => (
+                        <div key={label} className="min-w-0 break-words">
+                          <strong>{label}: </strong>{value}
+                        </div>
+                      ))}
                     </div>
-                    <div className="text-[10px] text-gray-800 mt-0.5 font-semibold">
-                      FEEDER: {project.metadata.location} 33/11kV SUB-STATION CORRIDOR
-                    </div>
-                    <div className="text-[9px] text-gray-600">
-                      VILLAGE / MOUZA: {project.metadata.location} · BLOCK: FALAKATA
-                    </div>
-                  </div>
-
-                  {/* Right: Scale & Engineering North Arrow */}
-                  <div className="flex items-center gap-3 shrink-0">
-                    <div className="text-right text-[9.5px] space-y-0.5">
-                      <div><strong>SCALE: </strong>{project.metadata.scale || 'NTS'}</div>
-                      <div><strong>REV: </strong>{project.metadata.revision || 'R0'}</div>
-                      <div><strong>SHEET: </strong>1 OF 1</div>
-                    </div>
-                    {/* Engineering North Arrow */}
-                    <div className="w-7 h-10 flex flex-col items-center">
-                      <span className="text-[9px] font-bold">N</span>
-                      <svg width="16" height="22" viewBox="0 0 20 28">
-                        <polygon points="10,0 2,24 10,18" fill="#000" />
-                        <polygon points="10,0 18,24 10,18" fill="#fff" stroke="#000" strokeWidth="1" />
-                      </svg>
+                    <div className="border-l border-black flex items-center gap-2 px-2">
+                      <div className="text-right text-[8px] space-y-1">
+                        {scale && <div><strong>SCALE: </strong>{scale}</div>}
+                        {revision && <div><strong>REV: </strong>{revision}</div>}
+                        <div><strong>SHEET: </strong>1 OF 1</div>
+                      </div>
+                      <div className="w-6 flex flex-col items-center">
+                        <span className="text-[8px] font-bold">N</span>
+                        <svg width="14" height="20" viewBox="0 0 20 28">
+                          <polygon points="10,0 2,24 10,18" fill="#000" />
+                          <polygon points="10,0 18,24 10,18" fill="#fff" stroke="#000" strokeWidth="1" />
+                        </svg>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -257,7 +591,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                 {/* 2. MIDDLE AREA: Left CAD Drawing Viewport + Right Side Tables (Index & BOQ) */}
                 <div className="flex-1 flex overflow-hidden">
                   {/* Left Drawing Canvas Viewport */}
-                  <div className="flex-1 h-full relative overflow-hidden bg-white border-r border-black p-2">
+                  <div className={`flex-1 h-full relative overflow-hidden bg-white p-2 ${showSidebar ? 'border-r border-black' : ''}`}>
+                    {mapLayerPosition === 'underlay' && pdfMapUnderlay}
                     <svg
                       ref={svgRef}
                       className="w-full h-full"
@@ -265,12 +600,25 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                       preserveAspectRatio="xMidYMid meet"
                     >
                       {/* River and Road Crossings */}
-                      {project.crossings.map((crossing) => (
+                      {mapFeatures.crossings && project.crossings.map((crossing) => (
                         <CrossingRenderer
                           key={crossing.id}
                           crossing={crossing}
                           isSelected={false}
                           onSelect={() => {}}
+                        />
+                      ))}
+
+                      {(project.mapRoadOutlines || []).map((road) => (
+                        <polyline
+                          key={road.id}
+                          points={road.points.map(({ x, y }) => `${x},${y}`).join(' ')}
+                          fill="none"
+                          stroke="#475569"
+                          strokeWidth="2.5"
+                          strokeLinejoin="round"
+                          strokeLinecap="round"
+                          vectorEffect="non-scaling-stroke"
                         />
                       ))}
 
@@ -337,12 +685,14 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                         </g>
                       ))}
                     </svg>
+                    {mapLayerPosition === 'overlay' && pdfMapUnderlay}
                   </div>
 
                   {/* Right Side Column: DRAWING INDEX & BOQ SCHEDULE */}
-                  <div className="w-[330px] h-full flex flex-col bg-white shrink-0 overflow-hidden text-[10px]">
+                  {showSidebar && (
+                  <div className={`w-[330px] h-full flex flex-col bg-white shrink-0 overflow-hidden text-[10px] ${showDrawingIndex && showBoq ? 'divide-y divide-black' : ''}`}>
                     {/* DRAWING INDEX SECTION */}
-                    <div className="border-b border-black">
+                    {showDrawingIndex && <div className={showBoq ? 'flex-1 min-h-0 overflow-hidden' : 'h-full overflow-y-auto'}>
                       <div className="bg-gray-100 font-extrabold text-[10px] text-center py-1 border-b border-black uppercase tracking-wider">
                         DRAWING INDEX / LEGEND
                       </div>
@@ -400,10 +750,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                           </tbody>
                         </table>
                       </div>
-                    </div>
+                    </div>}
 
                     {/* WORK QUANTITIES (BOQ) SCHEDULE */}
-                    <div className="flex-1 overflow-hidden flex flex-col">
+                    {showBoq && (
+                    <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
                       <div className="bg-gray-100 font-extrabold text-[10px] text-center py-1 border-b border-black uppercase tracking-wider">
                         WORK QUANTITIES / BOQ SCHEDULE
                       </div>
@@ -430,66 +781,77 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                         </table>
                       </div>
                     </div>
+                    )}
                   </div>
+                  )}
                 </div>
 
-                {/* 3. BOTTOM ENGINEERING TITLE BLOCK (Turnkey Contractor, Applicant & 3-Tier Sign-Off Grid) */}
-                <div className="h-20 border-t border-black grid grid-cols-12 text-[9px] leading-tight shrink-0 bg-white">
-                  {/* Left: Turnkey Contractor & Applicant Profile */}
-                  <div className="col-span-4 border-r border-black p-1.5 flex flex-col justify-between">
-                    <div>
-                      <div className="text-[8px] text-gray-500 font-bold uppercase">EXECUTING AGENCY & APPLICANT</div>
-                      <div className="font-extrabold text-[9.5px] uppercase text-black">
-                        {project.metadata.agencyName || 'M/S EASTERN POWER INFRASTRUCTURE'}
+                {/* 3. BOTTOM TITLE BLOCK: render only values supplied in Project Setup. */}
+                {showEngineeringSections && includeTitleBlock && (agencyName || applicantDetails.length > 0 ||
+                  drawingTitle || projectName || drawingNumber || signOffs.length > 0) && (
+                  <div className="min-h-[64px] border-t border-black flex text-[8.5px] leading-tight shrink-0 bg-white">
+                    {(agencyName || applicantDetails.length > 0) && (
+                      <div className="flex-1 min-w-0 p-1.5 space-y-0.5">
+                        <div className="text-[7.5px] text-gray-500 font-bold uppercase">PROJECT CONTACTS</div>
+                        {agencyName && (
+                          <div className="font-extrabold text-[9px] uppercase break-words">
+                            {agencyName}
+                          </div>
+                        )}
+                        {applicantDetails.map(([label, value]) => (
+                          <div key={label} className="break-words">
+                            <strong>{label}: </strong>{value}
+                          </div>
+                        ))}
                       </div>
-                      <div className="text-gray-800 font-medium">
-                        APPLICANT: {project.metadata.applicantName || 'ASHOK SAHA'} (PH: {project.metadata.applicantPhone || '9474123890'})
-                      </div>
-                    </div>
-                    <div className="text-[8px] text-gray-500 font-mono">
-                      APP NO: {project.metadata.applicationNo || '4003705061'} · WO: {project.metadata.workOrderNo || 'WO-2026/08'}
-                    </div>
-                  </div>
+                    )}
 
-                  {/* Middle: Drawing Title & Identification */}
-                  <div className="col-span-4 border-r border-black p-1.5 flex flex-col justify-between">
-                    <div>
-                      <div className="text-[8px] text-gray-500 font-bold uppercase">DRAWING TITLE</div>
-                      <div className="font-bold text-[10px] leading-snug line-clamp-2 text-black">
-                        {project.metadata.title}
+                    {(drawingTitle || projectName || drawingNumber) && (
+                      <div className="flex-1 min-w-0 border-l border-black p-1.5 space-y-1">
+                        {drawingTitle && (
+                          <div>
+                            <div className="text-[7.5px] text-gray-500 font-bold uppercase">DRAWING TITLE</div>
+                            <div className="font-bold text-[9.5px] leading-snug break-words">
+                              {drawingTitle}
+                            </div>
+                          </div>
+                        )}
+                        {projectName && (
+                          <div className="break-words"><strong>PROJECT: </strong>{projectName}</div>
+                        )}
+                        {drawingNumber && (
+                          <div className="font-mono break-words"><strong>DRAWING NO: </strong>{drawingNumber}</div>
+                        )}
                       </div>
-                    </div>
-                    <div className="font-mono text-[8.5px] text-gray-700 flex justify-between">
-                      <span>DRG NO: {project.metadata.drawingNo || 'DWG/WB/2026/01'}</span>
-                      <span>DATE: {project.metadata.date || new Date().toISOString().split('T')[0]}</span>
-                    </div>
-                  </div>
+                    )}
 
-                  {/* Right: Official Discom Engineering Approval Sign-Off Grid */}
-                  <div className="col-span-4 grid grid-cols-3 divide-x divide-black">
-                    <div className="p-1 flex flex-col justify-between">
-                      <span className="text-[7.5px] font-bold text-gray-500 uppercase">SURVEYED BY</span>
-                      <span className="font-semibold truncate text-black">{project.metadata.preparedBy || 'Surveyor'}</span>
-                      <span className="text-[7.5px] text-gray-500 font-mono">DRAFTSMAN</span>
-                    </div>
-                    <div className="p-1 flex flex-col justify-between">
-                      <span className="text-[7.5px] font-bold text-gray-500 uppercase">CHECKED BY</span>
-                      <span className="font-semibold truncate text-black">{project.metadata.checkedBy || 'SAE / JE (E)'}</span>
-                      <span className="text-[7.5px] text-emerald-700 font-bold">VERIFIED</span>
-                    </div>
-                    <div className="p-1 flex flex-col justify-between bg-gray-50/50">
-                      <span className="text-[7.5px] font-bold text-gray-500 uppercase">APPROVED BY</span>
-                      <span className="font-semibold truncate text-black">{project.metadata.approvedBy || 'DE / AEE (E)'}</span>
-                      <span className="text-[7.5px] text-red-700 font-black">DISCOM APPVD</span>
-                    </div>
+                    {signOffs.length > 0 && (
+                      <div
+                        className="flex-1 min-w-0 border-l border-black grid divide-x divide-black"
+                        style={{ gridTemplateColumns: `repeat(${signOffs.length}, minmax(0, 1fr))` }}
+                      >
+                        {signOffs.map(({ label, designation, office }) => (
+                          <div key={label} className="min-w-0 p-1.5 flex flex-col justify-center gap-0.5">
+                            <span className="text-[7.5px] font-bold text-gray-500 uppercase">{label}</span>
+                            {designation && (
+                              <span className="font-semibold text-black break-words">{designation}</span>
+                            )}
+                            {office && (
+                              <span className="text-[7.5px] font-medium text-gray-600 break-words">{office}</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                </div>
+                )}
 
               </div>
             </div>
           </div>
         </div>
       </div>
+    </div>
     </div>
   );
 };

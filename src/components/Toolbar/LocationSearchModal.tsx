@@ -5,17 +5,8 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import {
-  Compass,
-  MapPin,
-  Move,
-  Navigation,
-  Search,
-  Sparkles,
-  X,
-  Zap,
-} from 'lucide-react';
-import { searchLocations, UTILITY_LOCATIONS_DATABASE } from '../../utils/locationService';
+import { MapPin, Move, Navigation, Search, X } from 'lucide-react';
+import { searchLocations } from '../../utils/locationService';
 import { GeoLocation } from '../../types/electrical';
 
 interface LocationSearchModalProps {
@@ -32,16 +23,21 @@ export const LocationSearchModal: React.FC<LocationSearchModalProps> = ({
   onClose,
 }) => {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<GeoLocation[]>(UTILITY_LOCATIONS_DATABASE.slice(0, 8));
+  const [results, setResults] = useState<GeoLocation[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
     const timer = setTimeout(async () => {
       setIsSearching(true);
+      setSearchError(null);
       try {
-        const res = await searchLocations(query);
+        const res = await searchLocations(query, 'all', 8);
         setResults(res);
+      } catch (error) {
+        setResults([]);
+        setSearchError(error instanceof Error ? error.message : 'Unable to search OpenStreetMap.');
       } finally {
         setIsSearching(false);
       }
@@ -52,7 +48,12 @@ export const LocationSearchModal: React.FC<LocationSearchModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+    <div
+      className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
       <div className="bg-slate-900 border border-slate-700 w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
         {/* Header */}
         <div className="p-4 px-6 border-b border-slate-800 flex items-center justify-between bg-slate-900/90 shrink-0">
@@ -65,7 +66,7 @@ export const LocationSearchModal: React.FC<LocationSearchModalProps> = ({
                 <span>Search Area / Location</span>
               </h2>
               <p className="text-xs text-slate-400 mt-0.5">
-                Search utility sub-divisions, mouzas, highway crossings or enter GPS coordinates.
+                Search places using OpenStreetMap or enter GPS coordinates.
               </p>
             </div>
           </div>
@@ -97,7 +98,7 @@ export const LocationSearchModal: React.FC<LocationSearchModalProps> = ({
           </div>
           <div className="flex items-center gap-2 mt-2 text-[11px] text-slate-400">
             <span>Popular:</span>
-            {['Falakata', 'Promod Nagar', 'Birpara', 'Satpukuriya', 'Alipurduar'].map((pop) => (
+            {['Kolkata', 'Darjeeling', 'Siliguri', 'Falakata', 'Alipurduar'].map((pop) => (
               <button
                 key={pop}
                 onClick={() => setQuery(pop)}
@@ -118,10 +119,14 @@ export const LocationSearchModal: React.FC<LocationSearchModalProps> = ({
             </div>
           )}
 
-          {!isSearching && results.length === 0 && (
+          {!isSearching && searchError && (
+            <div className="text-center py-4 text-red-300">{searchError}</div>
+          )}
+
+          {!isSearching && !searchError && results.length === 0 && (
             <div className="text-center py-10 text-slate-500">
               <MapPin className="w-8 h-8 mx-auto text-slate-600 mb-2" />
-              <p>No matching locations found for "{query}".</p>
+              <p>No matching OpenStreetMap locations found for "{query}".</p>
               <p className="text-[11px] mt-1 text-slate-600">
                 You can also enter coordinates directly, like <strong>26.7124, 89.2841</strong>.
               </p>
@@ -186,7 +191,17 @@ export const LocationSearchModal: React.FC<LocationSearchModalProps> = ({
 
         {/* Footer */}
         <div className="p-3 px-6 border-t border-slate-800 bg-slate-900/60 flex items-center justify-between text-[11px] text-slate-400">
-          <span>Current Location: <strong className="text-white">{currentLocationName || 'Falakata'}</strong></span>
+          <div className="flex flex-col gap-0.5">
+            <span>Current Location: <strong className="text-white">{currentLocationName || 'Falakata'}</strong></span>
+            <a
+              href="https://www.openstreetmap.org/copyright"
+              target="_blank"
+              rel="noreferrer"
+              className="text-[9px] hover:text-slate-200 underline"
+            >
+              © OpenStreetMap contributors
+            </a>
+          </div>
           <button
             onClick={onClose}
             className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-medium"

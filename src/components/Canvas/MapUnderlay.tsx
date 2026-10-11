@@ -1,22 +1,46 @@
 /**
  * GIS Map Underlay Component
- * 100% Canvas & Map Size Synchronization (1:1 Locked Framing)
+ * OpenLayers map viewport matches the fixed-size drawing sheet
  * Light Theme Matched with Canvas Drawing Workspace:
- * - Map frame background, cartography, and UI match the crisp light canvas theme
- * - Continuous Real-Time Google Maps Zoom (interpolated 12x to 20x zoom)
- * - Dynamic Slippy map tiles (ArcGIS World Satellite Imagery, OpenStreetMap, CartoDB Light Voyager)
- * - Google Maps style floating zoom controls (+, -, scale bar, preset feeder levels)
+ * - Map frame and cartography are clipped exactly to the page bounds
+ * - Continuous real-time basemap zoom (interpolated 12x to 20x zoom)
+ * - OpenStreetMap raster tiles
+ * - Floating zoom controls (+, -, scale bar, preset feeder levels)
  * - High-contrast GPS pin marker with location details
  */
 
-import React, { useMemo } from 'react';
-import { CanvasBounds, GeoLocation } from '../../types/electrical';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  CanvasBounds,
+  GeoLocation,
+  MapFeatureSelection,
+  MapRoadCandidate,
+} from '../../types/electrical';
 import { MapPin, Crosshair, ZoomIn, ZoomOut, Layers } from 'lucide-react';
+import Feature from 'ol/Feature.js';
+import Map from 'ol/Map.js';
+import View from 'ol/View.js';
+import TileLayer from 'ol/layer/Tile.js';
+import VectorLayer from 'ol/layer/Vector.js';
+import DragPan from 'ol/interaction/DragPan.js';
+import Geometry from 'ol/geom/Geometry.js';
+import LineString from 'ol/geom/LineString.js';
+import Point from 'ol/geom/Point.js';
+import { fromLonLat, toLonLat, transformExtent } from 'ol/proj.js';
+import { defaults as defaultControls } from 'ol/control/defaults.js';
+import { Fill, Stroke, Style, Text } from 'ol/style.js';
+import OSM from 'ol/source/OSM.js';
+import VectorSource from 'ol/source/Vector.js';
+import {
+  CachedOSMElement,
+  readOSMFeatureCache,
+  writeOSMFeatureCache,
+} from '../../services/osmFeatureCache';
+import 'ol/ol.css';
 
 interface MapUnderlayProps {
   isVisible: boolean;
   opacity: number;
-  mapType: 'satellite' | 'roadmap' | 'terrain' | 'osm';
   locationName: string;
   geoLocation?: GeoLocation;
   zoom: number; // Viewport zoom factor
@@ -25,24 +49,16 @@ interface MapUnderlayProps {
   panY: number;
   isLocked: boolean;
   layerPosition?: 'underlay' | 'overlay';
-  mapZoomLevel?: number; // Base Google Maps tile zoom (12 to 19, default 16)
-  canvasBounds: CanvasBounds; // Map size is STRICTLY identical to canvas bounds
+  mapZoomLevel?: number; // Base map tile zoom (12 to 19, default 16)
+  canvasBounds: CanvasBounds;
   onMapZoomIn?: () => void;
   onMapZoomOut?: () => void;
   onMapZoomLevelChange?: (level: number) => void;
   onPlaceCanvasHere?: (loc: GeoLocation) => void;
-}
-
-// Convert Lon/Lat to Slippy Tile coordinates
-function lon2tile(lon: number, zoom: number) {
-  return Math.floor(((lon + 180) / 360) * Math.pow(2, zoom));
-}
-
-function lat2tile(lat: number, zoom: number) {
-  const rad = (lat * Math.PI) / 180;
-  return Math.floor(
-    ((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2) * Math.pow(2, zoom)
-  );
+  onMapCenterChange?: (lat: number, lng: number) => void;
+  onRoadFeaturesChange?: (roads: MapRoadCandidate[]) => void;
+  mapFeatures?: MapFeatureSelection;
+  printMode?: boolean;
 }
 
 // Calculate approximate meters per pixel for given latitude and zoom level
@@ -50,10 +66,98 @@ function getMetersPerPixel(lat: number, zoom: number): number {
   return (156543.03392 * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, zoom);
 }
 
+function getOSMCacheBounds(
+  extent: [number, number, number, number],
+  zoom: number
+): { key: string; bounds: [number, number, number, number] } {
+  const gridSize = zoom >= 18 ? 0.002 : zoom >= 16 ? 0.008 : 0.025;
+  const [west, south, east, north] = extent;
+  const bounds: [number, number, number, number] = [
+    Math.floor(west / gridSize) * gridSize,
+    Math.floor(south / gridSize) * gridSize,
+    Math.ceil(east / gridSize) * gridSize,
+    Math.ceil(north / gridSize) * gridSize,
+  ];
+  const key = bounds.map((coordinate) => coordinate.toFixed(6)).join(',');
+  return { key, bounds };
+}
+
+function featuresFromOSM(elements: CachedOSMElement[]): Feature<Geometry>[] {
+  const seenElements = new Set<string>();
+  const features: Feature<Geometry>[] = [];
+  elements.forEach((element) => {
+    const key = element.type && element.id !== undefined ? `${element.type}/${element.id}` : undefined;
+    if (key && seenElements.has(key)) return;
+    if (key) seenElements.add(key);
+
+    const name = element.tags?.name?.trim();
+    const highway = element.tags?.highway;
+    const waterway = element.tags?.waterway;
+    if (highway && element.geometry && element.geometry.length > 1) {
+      features.push(
+        new Feature({
+          geometry: new LineString(
+            element.geometry.map(({ lat, lon }) => fromLonLat([lon, lat]))
+          ),
+          name: name || '',
+          highway,
+          osmId: key || '',
+          kind: 'road-line',
+        })
+      );
+      return;
+    }
+    if (waterway && element.geometry && element.geometry.length > 1) {
+      features.push(
+        new Feature({
+          geometry: new LineString(
+            element.geometry.map(({ lat, lon }) => fromLonLat([lon, lat]))
+          ),
+          name: name || '',
+          waterway,
+          kind: 'river-line',
+        })
+      );
+      return;
+    }
+
+    const lat = element.lat ?? element.center?.lat;
+    const lon = element.lon ?? element.center?.lon;
+    if (!name || lat === undefined || lon === undefined) return;
+    features.push(
+      new Feature({
+        geometry: new Point(fromLonLat([lon, lat])),
+        name,
+        kind: 'place',
+      })
+    );
+  });
+  return features;
+}
+
+function roadCandidatesFromFeatures(
+  map: Map,
+  source: VectorSource<Feature<Geometry>>,
+  canvasBounds: CanvasBounds
+): MapRoadCandidate[] {
+  return source.getFeatures().flatMap((feature) => {
+    if (feature.get('kind') !== 'road-line') return [];
+    const geometry = feature.getGeometry();
+    const id = String(feature.get('osmId') || '');
+    if (!(geometry instanceof LineString) || !id) return [];
+    const points = geometry.getCoordinates().flatMap((coordinate) => {
+      const pixel = map.getPixelFromCoordinate(coordinate);
+      return pixel ? [{ x: canvasBounds.x + pixel[0], y: canvasBounds.y + pixel[1] }] : [];
+    });
+    return points.length > 1
+      ? [{ id, name: String(feature.get('name') || 'Unnamed road'), points }]
+      : [];
+  });
+}
+
 export const MapUnderlay: React.FC<MapUnderlayProps> = ({
   isVisible,
   opacity,
-  mapType,
   locationName,
   geoLocation,
   zoom,
@@ -68,77 +172,334 @@ export const MapUnderlay: React.FC<MapUnderlayProps> = ({
   onMapZoomOut,
   onMapZoomLevelChange,
   onPlaceCanvasHere,
+  onMapCenterChange,
+  onRoadFeaturesChange,
+  mapFeatures = { roads: true, rivers: true, streetNames: true, placeNames: true, crossings: true },
+  printMode = false,
 }) => {
-  if (!isVisible || opacity <= 0) return null;
+  const mapTargetRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<Map | null>(null);
+  const canvasBoundsRef = useRef(canvasBounds);
+  const localFeaturesRef = useRef(new VectorSource<Feature<Geometry>>());
+  const outerZoomRef = useRef(zoom);
+  const mapFeaturesRef = useRef(mapFeatures);
+  const onMapCenterChangeRef = useRef(onMapCenterChange);
+  const onRoadFeaturesChangeRef = useRef(onRoadFeaturesChange);
+  const isLockedRef = useRef(isLocked);
+  const isDraggingMapRef = useRef(false);
+  const [localNamesStatus, setLocalNamesStatus] = useState('Loading local names…');
+
+  useEffect(() => {
+    canvasBoundsRef.current = canvasBounds;
+  }, [canvasBounds]);
+
+  useEffect(() => {
+    outerZoomRef.current = zoom;
+    mapRef.current?.render();
+  }, [zoom]);
+
+  useEffect(() => {
+    mapFeaturesRef.current = mapFeatures;
+    mapRef.current?.render();
+  }, [mapFeatures]);
+
+  useEffect(() => {
+    onMapCenterChangeRef.current = onMapCenterChange;
+    onRoadFeaturesChangeRef.current = onRoadFeaturesChange;
+    isLockedRef.current = isLocked;
+  }, [onMapCenterChange, onRoadFeaturesChange, isLocked]);
 
   // Active coordinates (default to Falakata, WB distribution feeder)
   const centerLat = geoLocation?.lat ?? 26.7124;
   const centerLng = geoLocation?.lng ?? 89.2845;
 
-  // Real-time continuous Google Maps zoom calculation:
+  // Real-time continuous basemap zoom calculation:
   // As canvas zoom increases from fitZoom, continuous zoom increases smoothly
-  const baseGoogleZoom = mapZoomLevel || 16;
+  const baseMapZoom = mapZoomLevel || 16;
   const zoomRatio = Math.max(zoom / Math.max(fitZoom, 0.05), 0.5);
-  const continuousGoogleZoom = Math.min(Math.max(baseGoogleZoom + Math.log2(zoomRatio), 12), 20);
+  const continuousMapZoom = Math.min(Math.max(baseMapZoom + Math.log2(zoomRatio), 12), 19);
+  const tileZoom = Math.floor(continuousMapZoom);
 
-  // Integer tile zoom level for fetching imagery
-  const tileZoom = Math.min(Math.max(Math.floor(continuousGoogleZoom), 12), 19);
+  useEffect(() => {
+    if (!isVisible || opacity <= 0 || !mapTargetRef.current || mapRef.current) return;
 
-  // Smooth sub-tile scale multiplier (1.000 to 1.999) matching real-time Google Maps zoom
-  const subTileScale = Math.pow(2, continuousGoogleZoom - tileZoom);
+    const map = new Map({
+      target: mapTargetRef.current,
+      layers: [
+        new TileLayer({ source: new OSM({ crossOrigin: 'anonymous' }) }),
+        new VectorLayer({
+          source: localFeaturesRef.current,
+          declutter: true,
+          style: (feature) => {
+            const screenScale = 1 / Math.max(outerZoomRef.current, 0.1);
+            if (feature.get('kind') === 'road-line') {
+              if (!mapFeaturesRef.current.roads) return undefined;
+              const highway = String(feature.get('highway') || '');
+              const isAlleyOrPath = highway === 'service' || highway === 'track' || highway === 'path' ||
+                highway === 'footway' || highway === 'pedestrian' || highway === 'cycleway' ||
+                highway === 'living_street' || highway === 'residential' || highway === 'unclassified';
+              const width = isAlleyOrPath
+                ? 2.4 * screenScale
+                : highway === 'motorway' || highway === 'trunk' || highway === 'primary'
+                  ? 4 * screenScale
+                  : 3.2 * screenScale;
+              const roadStyles = [
+                new Style({
+                  stroke: new Stroke({ color: 'rgba(255,255,255,0.94)', width: width + 1.6 * screenScale }),
+                }),
+                new Style({
+                  stroke: new Stroke({ color: isAlleyOrPath ? '#78716c' : '#a16207', width }),
+                }),
+              ];
+              const name = mapFeaturesRef.current.streetNames ? String(feature.get('name') || '') : '';
+              if (!name) return roadStyles;
+              return [
+                ...roadStyles,
+                new Style({
+                  text: new Text({
+                    text: name,
+                    placement: 'line',
+                    repeat: 180 * screenScale,
+                    maxAngle: 0.45,
+                    font: `600 ${12 * screenScale}px "Plus Jakarta Sans", sans-serif`,
+                    fill: new Fill({ color: '#334155' }),
+                    stroke: new Stroke({ color: 'rgba(255,255,255,0.96)', width: 3 * screenScale }),
+                    overflow: true,
+                  }),
+                }),
+              ];
+            }
 
-  // 7x7 Tile Grid covering the canvas sheet
-  const tiles = useMemo(() => {
-    const centerTileX = lon2tile(centerLng, tileZoom);
-    const centerTileY = lat2tile(centerLat, tileZoom);
-    const result: { x: number; y: number; offsetX: number; offsetY: number; url: string }[] = [];
+            if (feature.get('kind') === 'river-line') {
+              if (!mapFeaturesRef.current.rivers) return undefined;
+              const riverStyles = [
+                new Style({
+                  stroke: new Stroke({ color: 'rgba(255,255,255,0.92)', width: 4 * screenScale }),
+                }),
+                new Style({
+                  stroke: new Stroke({ color: '#0284c7', width: 2.4 * screenScale }),
+                }),
+              ];
+              const name = mapFeaturesRef.current.streetNames ? String(feature.get('name') || '') : '';
+              return name
+                ? [
+                    ...riverStyles,
+                    new Style({
+                      text: new Text({
+                        text: name,
+                        placement: 'line',
+                        repeat: 220 * screenScale,
+                        font: `600 ${11 * screenScale}px "Plus Jakarta Sans", sans-serif`,
+                        fill: new Fill({ color: '#075985' }),
+                        stroke: new Stroke({ color: 'rgba(255,255,255,0.96)', width: 3 * screenScale }),
+                        overflow: true,
+                      }),
+                    }),
+                  ]
+                : riverStyles;
+            }
 
-    const tileSize = 256;
-    for (let dx = -3; dx <= 3; dx++) {
-      for (let dy = -3; dy <= 3; dy++) {
-        const tx = centerTileX + dx;
-        const ty = centerTileY + dy;
-        let url = '';
+            if (!mapFeaturesRef.current.placeNames) return undefined;
+            return new Style({
+              text: new Text({
+                text: String(feature.get('name') || ''),
+                font: `600 ${12 * screenScale}px "Plus Jakarta Sans", sans-serif`,
+                fill: new Fill({ color: '#0f172a' }),
+                stroke: new Stroke({ color: 'rgba(255,255,255,0.96)', width: 3 * screenScale }),
+                offsetY: -4 * screenScale,
+                overflow: false,
+              }),
+            });
+          },
+        }),
+      ],
+      view: new View({
+        center: fromLonLat([centerLng, centerLat]),
+        zoom: continuousMapZoom,
+        minZoom: 12,
+        maxZoom: 19,
+      }),
+      controls: defaultControls({ zoom: false, rotate: false, attribution: false }),
+      interactions: [],
+    });
+    mapRef.current = map;
+    map.on('pointerdrag', () => {
+      isDraggingMapRef.current = true;
+    });
+    map.on('moveend', () => {
+      if (!isDraggingMapRef.current) return;
+      isDraggingMapRef.current = false;
+      if (isLockedRef.current) return;
+      const center = map.getView().getCenter();
+      if (!center) return;
+      const [lng, lat] = toLonLat(center);
+      onMapCenterChangeRef.current?.(lat, lng);
+    });
+    map.updateSize();
+    map.on('moveend', () => {
+      onRoadFeaturesChangeRef.current?.(
+        roadCandidatesFromFeatures(map, localFeaturesRef.current, canvasBoundsRef.current)
+      );
+    });
 
-        if (mapType === 'satellite') {
-          url = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${tileZoom}/${ty}/${tx}`;
-        } else if (mapType === 'osm' || mapType === 'roadmap') {
-          url = `https://tile.openstreetmap.org/${tileZoom}/${tx}/${ty}.png`;
-        } else {
-          url = `https://basemaps.cartocdn.com/rastertiles/voyager/${tileZoom}/${tx}/${ty}.png`;
-        }
+    return () => {
+      map.setTarget(undefined);
+      map.dispose();
+      mapRef.current = null;
+    };
+  }, [isVisible && opacity > 0]);
 
-        result.push({
-          x: tx,
-          y: ty,
-          offsetX: dx * tileSize,
-          offsetY: dy * tileSize,
-          url,
-        });
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !isVisible || opacity <= 0) return;
+
+    let controller: AbortController | undefined;
+    let disposed = false;
+    const timeout = window.setTimeout(async () => {
+      const view = map.getView();
+      const mapSize = map.getSize();
+      if (!mapSize) return;
+
+      if (view.getZoom() !== undefined && view.getZoom()! < 14) {
+        localFeaturesRef.current.clear();
+        setLocalNamesStatus('Zoom in to level 14 to load local names');
+        return;
       }
-    }
-    return result;
-  }, [centerLat, centerLng, tileZoom, mapType]);
 
-  const metersPerPixel = getMetersPerPixel(centerLat, continuousGoogleZoom);
+      const extent = view.calculateExtent(mapSize);
+      const geographicExtent = transformExtent(extent, 'EPSG:3857', 'EPSG:4326') as [
+        number,
+        number,
+        number,
+        number,
+      ];
+      const { key, bounds } = getOSMCacheBounds(geographicExtent, continuousMapZoom);
+      const bbox = `${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
+      const query = `[out:json][timeout:20][maxsize:33554432];(way["highway"](${bbox});way["waterway"](${bbox}););out tags geom;(node["name"](${bbox});way["name"](${bbox});relation["name"](${bbox}););out center tags;`;
+
+      let cachedElements: CachedOSMElement[] | null = null;
+      try {
+        cachedElements = await readOSMFeatureCache(key);
+      } catch (error) {
+        if (disposed) return;
+        setLocalNamesStatus(
+          `Local database unavailable: ${error instanceof Error ? error.message : 'read failed'}`
+        );
+      }
+
+      if (disposed) return;
+      if (cachedElements) {
+        const cachedFeatures = featuresFromOSM(cachedElements);
+        localFeaturesRef.current.clear();
+        localFeaturesRef.current.addFeatures(cachedFeatures);
+        map.renderSync();
+        onRoadFeaturesChangeRef.current?.(
+          roadCandidatesFromFeatures(map, localFeaturesRef.current, canvasBounds)
+        );
+        const cachedRoadCount = cachedFeatures.filter((feature) => feature.get('kind') === 'road-line').length;
+        setLocalNamesStatus(
+          `Local database · ${cachedRoadCount} streets · ${cachedFeatures.length - cachedRoadCount} names`
+        );
+      } else {
+        localFeaturesRef.current.clear();
+        setLocalNamesStatus('Loading local names…');
+      }
+
+      controller = new AbortController();
+      try {
+        const response = await fetch('https://overpass-api.de/api/interpreter', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+          body: `data=${encodeURIComponent(query)}`,
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`OpenStreetMap local data request failed (${response.status}).`);
+
+        const result = (await response.json()) as { elements?: CachedOSMElement[] };
+        const elements = result.elements || [];
+        const features = featuresFromOSM(elements);
+        localFeaturesRef.current.clear();
+        localFeaturesRef.current.addFeatures(features);
+        map.renderSync();
+        onRoadFeaturesChangeRef.current?.(
+          roadCandidatesFromFeatures(map, localFeaturesRef.current, canvasBounds)
+        );
+        const roadCount = features.filter((feature) => feature.get('kind') === 'road-line').length;
+        const nameCount = features.length - roadCount;
+        try {
+          await writeOSMFeatureCache(key, elements);
+          if (!disposed) setLocalNamesStatus(`Saved locally · ${roadCount} streets · ${nameCount} names`);
+        } catch (error) {
+          if (!disposed) {
+            setLocalNamesStatus(
+              `Loaded ${roadCount} streets · ${nameCount} names; local save failed: ${
+                error instanceof Error ? error.message : 'database write failed'
+              }`
+            );
+          }
+        }
+      } catch (error) {
+        if (disposed || (error instanceof DOMException && error.name === 'AbortError')) return;
+        if (cachedElements) {
+          setLocalNamesStatus('Offline · showing saved OpenStreetMap data');
+        } else {
+          localFeaturesRef.current.clear();
+          setLocalNamesStatus(error instanceof Error ? error.message : 'Unable to load local names.');
+        }
+      }
+    }, 450);
+
+    return () => {
+      disposed = true;
+      window.clearTimeout(timeout);
+      controller?.abort();
+    };
+  }, [centerLat, centerLng, continuousMapZoom, isVisible, opacity, canvasBounds.x, canvasBounds.y, canvasBounds.width, canvasBounds.height]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const interactions = map.getInteractions();
+    interactions.clear();
+    if (!isLocked) interactions.push(new DragPan());
+  }, [isLocked, isVisible, opacity]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !isVisible || opacity <= 0) return;
+    map.getView().setCenter(fromLonLat([centerLng, centerLat]));
+    map.getView().setZoom(continuousMapZoom);
+    map.updateSize();
+  }, [
+    centerLat,
+    centerLng,
+    continuousMapZoom,
+    isVisible,
+    opacity,
+    canvasBounds.width,
+    canvasBounds.height,
+    zoom,
+  ]);
+
+  if (!isVisible || opacity <= 0) return null;
+
+  const metersPerPixel = getMetersPerPixel(centerLat, continuousMapZoom);
   const scaleBarMeters = Math.round(metersPerPixel * 80);
 
-  // Map size and canvas size are strictly 100% identical
-  const mapWidth = canvasBounds.width;
-  const mapHeight = canvasBounds.height;
-  const mapX = canvasBounds.x;
-  const mapY = canvasBounds.y;
-  const centerX = mapWidth / 2;
-  const centerY = mapHeight / 2;
+  const centerX = canvasBounds.width / 2;
+  const centerY = canvasBounds.height / 2;
+  const attribution = '© OpenStreetMap contributors';
 
   return (
     <div
-      className={`absolute inset-0 pointer-events-${isLocked ? 'none' : 'auto'} overflow-hidden select-none ${
+      className={`absolute inset-0 ${
+        isLocked ? 'pointer-events-none' : 'pointer-events-auto'
+      } overflow-hidden select-none ${
         layerPosition === 'overlay' ? 'z-10' : 'z-0'
       }`}
       style={{ opacity: opacity / 100 }}
     >
-      {/* World Space Coordinate Transform Container */}
+      {/* Match the drawing sheet's world-space transform and bounds. */}
       <div
         className="w-full h-full relative"
         style={{
@@ -146,110 +507,32 @@ export const MapUnderlay: React.FC<MapUnderlayProps> = ({
           transformOrigin: '0 0',
         }}
       >
-        {/* Exact Canvas Bounding Box (Map size and Canvas size are 100% Identical in Light Theme) */}
         <div
-          className="absolute rounded-xl overflow-hidden shadow-2xl bg-white border border-slate-300"
+          className="absolute overflow-hidden"
           style={{
-            left: `${mapX}px`,
-            top: `${mapY}px`,
-            width: `${mapWidth}px`,
-            height: `${mapHeight}px`,
+            left: printMode ? 0 : `${canvasBounds.x}px`,
+            top: printMode ? 0 : `${canvasBounds.y}px`,
+            width: printMode ? '100%' : `${canvasBounds.width}px`,
+            height: printMode ? '100%' : `${canvasBounds.height}px`,
           }}
         >
-          {/* Continuous Real-Time Google Maps Tile Scaler */}
           <div
-            className="absolute pointer-events-none"
-            style={{
-              left: `${centerX}px`,
-              top: `${centerY}px`,
-              transform: `scale(${subTileScale})`,
-              transformOrigin: '0 0',
-            }}
-          >
+            ref={mapTargetRef}
+            className={`absolute inset-0 ${isLocked ? 'pointer-events-none' : 'pointer-events-auto cursor-grab active:cursor-grabbing'}`}
+            aria-label="OpenStreetMap with local place names"
+          />
+
+          {layerPosition === 'overlay' && (
             <div
-              className="absolute"
+              className="absolute z-10 border-2 border-sky-400 pointer-events-none"
               style={{
-                left: '-896px', // 7 * 256 / 2
-                top: '-896px',
+                inset: 0,
               }}
-            >
-              {tiles.map((tile) => (
-                <img
-                  key={`${tile.x}-${tile.y}-${tileZoom}`}
-                  src={tile.url}
-                  alt=""
-                  loading="lazy"
-                  crossOrigin="anonymous"
-                  className="absolute pointer-events-none select-none"
-                  style={{
-                    width: '256px',
-                    height: '256px',
-                    left: `${896 + tile.offsetX}px`,
-                    top: `${896 + tile.offsetY}px`,
-                    imageRendering: 'auto',
-                  }}
-                  onError={(e) => {
-                    (e.target as HTMLElement).style.opacity = '0';
-                  }}
-                />
-              ))}
-            </div>
-          </div>
-
-          {/* Proportional Vector Cartography Elements (Light-matched Theme) */}
-          <div
-            className="absolute inset-0 pointer-events-none"
-            style={{
-              left: `${centerX}px`,
-              top: `${centerY}px`,
-              width: `${mapWidth}px`,
-              height: `${mapHeight}px`,
-              transform: 'translate(-50%, -50%)',
-            }}
-          >
-            <svg className="w-full h-full" xmlns="http://www.w3.org/2000/svg">
-              <defs>
-                <pattern id="crop-field-sat-light" width="100" height="70" patternUnits="userSpaceOnUse">
-                  <rect width="100" height="70" fill="#16a34a" fillOpacity="0.08" stroke="#15803d" strokeWidth="0.5" strokeOpacity="0.15" />
-                  <path d="M 0 25 L 100 25 M 0 50 L 100 50" stroke="#16a34a" strokeWidth="0.5" strokeOpacity="0.12" />
-                </pattern>
-              </defs>
-
-              {/* Sub-division Agricultural Plots */}
-              <rect x="50" y="80" width={mapWidth * 0.35} height={mapHeight * 0.35} fill="url(#crop-field-sat-light)" />
-              <rect x={mapWidth * 0.55} y="100" width={mapWidth * 0.4} height={mapHeight * 0.3} fill="url(#crop-field-sat-light)" />
-
-              {/* River Crossing Corridor */}
-              <path
-                d={`M 0 ${mapHeight * 0.65} Q ${mapWidth * 0.3} ${mapHeight * 0.55}, ${mapWidth * 0.6} ${mapHeight * 0.7} T ${mapWidth} ${mapHeight * 0.62}`}
-                fill="none"
-                stroke="#0284c7"
-                strokeWidth="18"
-                strokeLinecap="round"
-                opacity="0.65"
-              />
-              <path
-                d={`M 0 ${mapHeight * 0.65} Q ${mapWidth * 0.3} ${mapHeight * 0.55}, ${mapWidth * 0.6} ${mapHeight * 0.7} T ${mapWidth} ${mapHeight * 0.62}`}
-                fill="none"
-                stroke="#38bdf8"
-                strokeWidth="2"
-                strokeDasharray="10 5"
-                opacity="0.9"
-              />
-
-              {/* Primary Feeder Highway (NH-31D) */}
-              <path d={`M 0 ${mapHeight * 0.32} L ${mapWidth} ${mapHeight * 0.32}`} fill="none" stroke="#334155" strokeWidth="8" opacity="0.8" />
-              <path d={`M 0 ${mapHeight * 0.32} L ${mapWidth} ${mapHeight * 0.32}`} fill="none" stroke="#f59e0b" strokeWidth="4" opacity="0.85" />
-              <path d={`M 0 ${mapHeight * 0.32} L ${mapWidth} ${mapHeight * 0.32}`} fill="none" stroke="#ffffff" strokeWidth="1" strokeDasharray="8 6" />
-
-              {/* Secondary Feeder Roads */}
-              <path d={`M ${mapWidth * 0.3} 0 L ${mapWidth * 0.3} ${mapHeight}`} fill="none" stroke="#64748b" strokeWidth="4.5" opacity="0.7" />
-              <path d={`M ${mapWidth * 0.3} 0 L ${mapWidth * 0.3} ${mapHeight}`} fill="none" stroke="#e2e8f0" strokeWidth="2" opacity="0.9" />
-            </svg>
-          </div>
+            />
+          )}
 
           {/* Center GPS Place Marker */}
-          {geoLocation && (
+          {geoLocation && !printMode && (
             <div
               className="absolute pointer-events-auto cursor-pointer group"
               style={{
@@ -295,14 +578,32 @@ export const MapUnderlay: React.FC<MapUnderlayProps> = ({
           )}
 
           {/* 1:1 Page Size & Map Synchronization Tag (Light Theme) */}
-          <div className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded-lg bg-white/95 border border-sky-400 text-[10px] text-sky-800 font-mono font-bold flex items-center gap-1.5 shadow-sm pointer-events-none">
+          {!printMode && <div className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded-lg bg-white/95 border border-sky-400 text-[10px] text-sky-800 font-mono font-bold flex items-center gap-1.5 shadow-sm pointer-events-none">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span>GIS Map Locked to Page ({mapWidth} × {mapHeight})</span>
-          </div>
+            <span>OpenStreetMap · Fixed sheet ({canvasBounds.width} × {canvasBounds.height})</span>
+          </div>}
+
+          {!printMode && <a
+            href="https://www.openstreetmap.org/copyright"
+            target="_blank"
+            rel="noreferrer"
+            className="absolute bottom-1 right-2 z-10 bg-white/85 px-1.5 py-0.5 rounded text-[8px] text-slate-700 hover:text-sky-700 pointer-events-auto"
+          >
+            {attribution}
+          </a>}
+          {printMode && (
+            <span className="absolute bottom-1 right-2 z-10 bg-white/85 px-1.5 py-0.5 rounded text-[8px] text-slate-700 pointer-events-none">
+              {attribution}
+            </span>
+          )}
+          {!printMode && <div className="absolute top-2 right-2 z-10 rounded-md bg-white/90 border border-slate-200 px-2 py-1 text-[9px] font-medium text-slate-600 shadow-sm pointer-events-none">
+            {localNamesStatus}
+          </div>}
         </div>
       </div>
 
-      {/* ---------------- REAL-TIME GOOGLE MAPS FLOATING CONTROLS DOCK (Light Theme) ---------------- */}
+      {/* ---------------- REAL-TIME BASEMAP FLOATING CONTROLS DOCK (Light Theme) ---------------- */}
+      {!printMode && (
       <div className="absolute bottom-6 left-6 z-20 flex flex-col gap-2 pointer-events-auto">
         {/* Coordinates, Provider & Scale Bar */}
         <div className="bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-200 text-xs text-slate-800 flex items-center gap-2.5 shadow-xl">
@@ -316,7 +617,7 @@ export const MapUnderlay: React.FC<MapUnderlayProps> = ({
           </span>
           <span className="text-slate-300">|</span>
           <span className="text-sky-700 font-semibold uppercase text-[10px] bg-sky-50 px-2 py-0.5 rounded border border-sky-200">
-            {mapType.toUpperCase()}
+            OPENSTREETMAP
           </span>
 
           {/* Scale Bar */}
@@ -326,28 +627,28 @@ export const MapUnderlay: React.FC<MapUnderlayProps> = ({
           </div>
         </div>
 
-        {/* Google Maps Style Real-Time Zoom Pill */}
+        {/* Real-time basemap zoom pill */}
         <div className="bg-white/95 backdrop-blur-md px-2.5 py-1.5 rounded-xl border border-slate-200 text-xs text-slate-800 flex items-center gap-2 shadow-xl w-fit">
           <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-            Google Map Zoom:
+            Basemap Zoom:
           </span>
           {onMapZoomOut && (
             <button
               onClick={onMapZoomOut}
               className="p-1 hover:bg-slate-100 text-slate-600 hover:text-slate-900 rounded-lg transition-colors"
-              title="Zoom out Google Maps layer"
+              title="Zoom out basemap"
             >
               <ZoomOut className="w-3.5 h-3.5" />
             </button>
           )}
           <span className="font-mono font-bold text-[11px] text-sky-700 px-1">
-            {continuousGoogleZoom.toFixed(1)}x (Lvl {tileZoom})
+            {continuousMapZoom.toFixed(1)}x (Lvl {tileZoom})
           </span>
           {onMapZoomIn && (
             <button
               onClick={onMapZoomIn}
               className="p-1 hover:bg-slate-100 text-slate-600 hover:text-slate-900 rounded-lg transition-colors"
-              title="Zoom in Google Maps layer"
+              title="Zoom in basemap"
             >
               <ZoomIn className="w-3.5 h-3.5" />
             </button>
@@ -366,7 +667,11 @@ export const MapUnderlay: React.FC<MapUnderlayProps> = ({
               ].map((lvl) => (
                 <button
                   key={lvl.level}
-                  onClick={() => onMapZoomLevelChange(lvl.level)}
+                  onClick={() =>
+                    onMapZoomLevelChange(
+                      Math.min(Math.max(lvl.level - Math.log2(zoomRatio), 12), 19)
+                    )
+                  }
                   className={`px-1.5 py-0.5 rounded text-[9.5px] font-medium transition-colors ${
                     tileZoom === lvl.level
                       ? 'bg-sky-600 text-white font-bold shadow-xs'
@@ -379,7 +684,30 @@ export const MapUnderlay: React.FC<MapUnderlayProps> = ({
             </div>
           )}
         </div>
+
+        {/* Map Zoom Slider */}
+        {onMapZoomLevelChange && (
+          <div className="bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-200 text-xs text-slate-800 flex items-center gap-2.5 shadow-xl w-full">
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">
+              Map Zoom
+            </span>
+            <input
+              type="range"
+              min="12"
+              max="19"
+              step="0.1"
+              value={baseMapZoom}
+              onChange={(e) => onMapZoomLevelChange(parseFloat(e.target.value))}
+              className="flex-1 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-sky-600"
+              aria-label="Basemap zoom level"
+            />
+            <span className="font-mono font-bold text-[10px] text-sky-700 w-8 text-right">
+              {baseMapZoom.toFixed(1)}
+            </span>
+          </div>
+        )}
       </div>
+      )}
     </div>
   );
 };

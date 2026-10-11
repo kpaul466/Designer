@@ -2,7 +2,7 @@
  * Official Engineering Page Sizes & Canvas Dimensions
  * Enforces requirement:
  * - Canvas size is fixed to selected page size (1:1 lock)
- * - Map size and canvas size are strictly identical
+ * - The GIS map may extend beyond the sheet to show surrounding geography
  */
 
 import { CanvasBounds, SheetSizeType } from '../types/electrical';

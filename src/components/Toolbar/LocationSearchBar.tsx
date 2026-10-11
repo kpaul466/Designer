@@ -1,9 +1,8 @@
 /**
  * Area & Place Search Engine for PowerLine Designer GIS
- * Comprehensive search for electrical distribution areas, substations, habitations, crossings, and global locations.
+ * Search places from OpenStreetMap.
  * Features:
- * - Extensive database of WBSEDCL & Indian distribution zones, 33/11kV substations, and Mouza areas
- * - Live OpenStreetMap Nominatim geocoding for any village, town, road, or address globally
+ * - OpenStreetMap geocoding and place search
  * - GPS Coordinate parser (Lat, Lng)
  * - Category filter tabs (All, Substations, Habitations, Crossings)
  * - Actions: "Fly Map to Place", "Place Canvas Here", "Drop Pin Marker"
@@ -22,192 +21,11 @@ import {
   Building,
   Zap,
   Waves,
-  Map as MapIcon,
-  Compass,
 } from 'lucide-react';
 import { GeoLocation } from '../../types/electrical';
+import { searchLocations } from '../../utils/locationService';
 
-const STORAGE_KEY_RECENT_SEARCHES = 'powerline_recent_places_v2';
-
-// Curated electrical distribution division presets, substations, and crossing corridors
-export const PRESET_LOCATIONS: GeoLocation[] = [
-  // 1. SUBSTATIONS & FEEDERS
-  {
-    name: 'Falakata 33/11kV Sub-Station',
-    district: 'Alipurduar',
-    state: 'West Bengal',
-    lat: 26.7124,
-    lng: 89.2845,
-    category: 'substation',
-    description: '33/11kV Primary Substation — Falakata Feeder 1 & 2',
-  },
-  {
-    name: 'Birpara 33/11kV Substation & CCC',
-    district: 'Alipurduar',
-    state: 'West Bengal',
-    lat: 26.7821,
-    lng: 89.1235,
-    category: 'substation',
-    description: 'Birpara CCC — NH-31D Birpara-Falakata Corridor Feeder',
-  },
-  {
-    name: 'Alipurduar 132/33kV Grid Substation',
-    district: 'Alipurduar',
-    state: 'West Bengal',
-    lat: 26.4925,
-    lng: 89.5283,
-    category: 'substation',
-    description: 'Central Division Transmission Grid & Distribution Feeders',
-  },
-  {
-    name: 'Siliguri 132/33kV Distribution Hub',
-    district: 'Darjeeling',
-    state: 'West Bengal',
-    lat: 26.7271,
-    lng: 88.3953,
-    category: 'substation',
-    description: 'North Bengal Zonal Hub & Major Urban Feeder Network',
-  },
-  {
-    name: 'Dhupguri 33/11kV Substation Area',
-    district: 'Jalpaiguri',
-    state: 'West Bengal',
-    lat: 26.5982,
-    lng: 89.0125,
-    category: 'substation',
-    description: 'Dhupguri CCC — Agricultural Pump & Rural Feeder',
-  },
-  {
-    name: 'Maynaguri 33/11kV Rural Substation',
-    district: 'Jalpaiguri',
-    state: 'West Bengal',
-    lat: 26.5621,
-    lng: 88.8254,
-    category: 'substation',
-    description: 'Maynaguri CCC — Distribution Lines & 25kVA DTR Schemes',
-  },
-  {
-    name: 'Cooch Behar 132/33kV Power Station',
-    district: 'Cooch Behar',
-    state: 'West Bengal',
-    lat: 26.3242,
-    lng: 89.4526,
-    category: 'substation',
-    description: 'Cooch Behar Town & Sub-Divisional Electrical Feeders',
-  },
-  {
-    name: 'Hasimara / Jaigaon Indo-Bhutan Substation',
-    district: 'Alipurduar',
-    state: 'West Bengal',
-    lat: 26.7502,
-    lng: 89.3401,
-    category: 'substation',
-    description: 'Border Industrial Feeder & Commercial Substation',
-  },
-  {
-    name: 'Kolkata Bidyut Bhavan Headquarters',
-    district: 'Kolkata',
-    state: 'West Bengal',
-    lat: 22.5867,
-    lng: 88.4172,
-    category: 'substation',
-    description: 'Salt Lake Sector II — WBSEDCL Central Utility Headquarters',
-  },
-
-  // 2. TOWNS, VILLAGES & HABITATIONS
-  {
-    name: 'Satpukuriya Village Habitation',
-    district: 'Alipurduar',
-    state: 'West Bengal',
-    lat: 26.7058,
-    lng: 89.2682,
-    category: 'town',
-    description: 'Rural Habitation & Papai Barman S/C Consumer Clusters',
-  },
-  {
-    name: 'Promod Nagar Habitation Cluster',
-    district: 'Alipurduar',
-    state: 'West Bengal',
-    lat: 26.7215,
-    lng: 89.2941,
-    category: 'town',
-    description: 'Rural Electrification Wing & S/C-6 Service Connection Feeder',
-  },
-  {
-    name: 'Falakata Municipal Town & Market',
-    district: 'Alipurduar',
-    state: 'West Bengal',
-    lat: 26.7185,
-    lng: 89.2812,
-    category: 'town',
-    description: 'Falakata Main Market, Sub-Division Commercial Feeders',
-  },
-  {
-    name: 'Madarihat Jaldapara Feeder Area',
-    district: 'Alipurduar',
-    state: 'West Bengal',
-    lat: 26.7025,
-    lng: 89.2785,
-    category: 'town',
-    description: 'Ecotourism Feeder & LT AB Cable Conversion',
-  },
-  {
-    name: 'Malbazar Tea Estate Feeder',
-    district: 'Jalpaiguri',
-    state: 'West Bengal',
-    lat: 26.8621,
-    lng: 88.7423,
-    category: 'town',
-    description: 'Dooars Tea Garden HT-OH Transmission Corridor',
-  },
-  {
-    name: 'Kalimpong Hill Sub-Division',
-    district: 'Kalimpong',
-    state: 'West Bengal',
-    lat: 27.0667,
-    lng: 88.4667,
-    category: 'town',
-    description: 'Hill Terrain HT Distribution & RSJ Pole Lines',
-  },
-
-  // 3. CROSSING CORRIDORS & HIGHWAYS
-  {
-    name: 'Mujnai River Crossing Corridor',
-    district: 'Alipurduar',
-    state: 'West Bengal',
-    lat: 26.7352,
-    lng: 89.2154,
-    category: 'crossing',
-    description: 'River Crossing 50M, 60M, 32M Spans & 25 kVA DTR Pole Induction',
-  },
-  {
-    name: 'Torsa River Floodplain Crossing',
-    district: 'Cooch Behar',
-    state: 'West Bengal',
-    lat: 26.3150,
-    lng: 89.4720,
-    category: 'crossing',
-    description: 'Major Riverbed High-Tension Transmission Crossing',
-  },
-  {
-    name: 'NH-31D Falakata-Birpara Road Crossing',
-    district: 'Alipurduar',
-    state: 'West Bengal',
-    lat: 26.7450,
-    lng: 89.2100,
-    category: 'crossing',
-    description: 'National Highway Road Crossing with LT AB Cable & Cradle Guard',
-  },
-  {
-    name: 'Rajeshwary Fuel Station Commercial Feeder',
-    district: 'Alipurduar',
-    state: 'West Bengal',
-    lat: 26.7380,
-    lng: 89.2450,
-    category: 'landmark',
-    description: 'Commercial Feeder, 4-Pole Structure & 11kV Metering Unit',
-  },
-];
+const STORAGE_KEY_RECENT_SEARCHES = 'powerline_recent_places_v4';
 
 interface LocationSearchBarProps {
   currentLocationName?: string;
@@ -225,8 +43,9 @@ export const LocationSearchBar: React.FC<LocationSearchBarProps> = ({
   const [query, setQuery] = useState(currentLocationName);
   const [isOpen, setIsOpen] = useState(false);
   const [activeCategory, setActiveCategory] = useState<'all' | 'substation' | 'town' | 'crossing'>('all');
-  const [results, setResults] = useState<GeoLocation[]>(PRESET_LOCATIONS);
+  const [results, setResults] = useState<GeoLocation[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [recentSearches, setRecentSearches] = useState<GeoLocation[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_RECENT_SEARCHES);
@@ -257,99 +76,30 @@ export const LocationSearchBar: React.FC<LocationSearchBarProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Filter or Geocode
+  // Search OpenStreetMap
   useEffect(() => {
-    const trimmed = query.trim();
+    let isCurrentSearch = true;
+    setSearchError(null);
+    setIsLoading(true);
 
-    // 1. If blank, show presets filtered by category
-    if (!trimmed) {
-      if (activeCategory === 'all') {
-        setResults(PRESET_LOCATIONS);
-      } else {
-        setResults(PRESET_LOCATIONS.filter((l) => l.category === activeCategory));
-      }
-      setIsLoading(false);
-      return;
-    }
-
-    // 2. Filter local presets
-    let matched = PRESET_LOCATIONS.filter(
-      (loc) =>
-        loc.name.toLowerCase().includes(trimmed.toLowerCase()) ||
-        (loc.district && loc.district.toLowerCase().includes(trimmed.toLowerCase())) ||
-        (loc.state && loc.state.toLowerCase().includes(trimmed.toLowerCase())) ||
-        (loc.description && loc.description.toLowerCase().includes(trimmed.toLowerCase()))
-    );
-
-    if (activeCategory !== 'all') {
-      matched = matched.filter((l) => l.category === activeCategory);
-    }
-
-    // 3. Check if GPS Coordinates: e.g. "26.712, 89.284"
-    const coordMatch = trimmed.match(/^([-+]?[0-9]*\.?[0-9]+)[,\s]+([-+]?[0-9]*\.?[0-9]+)$/);
-    if (coordMatch) {
-      const lat = parseFloat(coordMatch[1]);
-      const lng = parseFloat(coordMatch[2]);
-      if (!isNaN(lat) && !isNaN(lng)) {
-        setResults([
-          {
-            name: `GPS Point: ${lat.toFixed(4)}° N, ${lng.toFixed(4)}° E`,
-            lat,
-            lng,
-            category: 'landmark',
-            description: 'Custom Geographic Coordinate Point',
-          },
-          ...matched,
-        ]);
-        return;
-      }
-    }
-
-    setResults(matched);
-
-    // 4. Live OpenStreetMap Geocoding (if >= 3 characters)
-    if (trimmed.length >= 3) {
-      const timer = setTimeout(async () => {
-        setIsLoading(true);
-        try {
-          const resp = await fetch(
-            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
-              trimmed
-            )}&limit=5&countrycodes=in&addressdetails=1`,
-            {
-              headers: {
-                'Accept-Language': 'en',
-              },
-            }
-          );
-          if (resp.ok) {
-            const data = await resp.json();
-            if (Array.isArray(data) && data.length > 0) {
-              const osmResults: GeoLocation[] = data.map((item: any) => ({
-                name: item.name || item.display_name.split(',')[0],
-                district: item.address?.state_district || item.address?.county || item.display_name.split(',')[1]?.trim(),
-                state: item.address?.state || 'India',
-                lat: parseFloat(item.lat),
-                lng: parseFloat(item.lon),
-                category: 'general',
-                description: item.display_name,
-              }));
-
-              // Merge without duplicates
-              const existingNames = new Set(matched.map((m) => m.name.toLowerCase()));
-              const filteredOsm = osmResults.filter((o) => !existingNames.has(o.name.toLowerCase()));
-              setResults([...matched, ...filteredOsm]);
-            }
-          }
-        } catch (e) {
-          console.warn('Geocoding search error:', e);
-        } finally {
-          setIsLoading(false);
-        }
-      }, 350);
-
-      return () => clearTimeout(timer);
-    }
+    const debounceTimer = window.setTimeout(() => {
+      searchLocations(query, activeCategory)
+        .then((locations) => {
+          if (isCurrentSearch) setResults(locations);
+        })
+        .catch((error: unknown) => {
+          if (!isCurrentSearch) return;
+          setResults([]);
+          setSearchError(error instanceof Error ? error.message : 'Unable to search OpenStreetMap.');
+        })
+        .finally(() => {
+          if (isCurrentSearch) setIsLoading(false);
+        });
+    }, 200);
+    return () => {
+      isCurrentSearch = false;
+      window.clearTimeout(debounceTimer);
+    };
   }, [query, activeCategory]);
 
   const saveRecent = (loc: GeoLocation) => {
@@ -433,7 +183,6 @@ export const LocationSearchBar: React.FC<LocationSearchBarProps> = ({
             <button
               onClick={() => {
                 setQuery('');
-                setResults(PRESET_LOCATIONS);
                 inputRef.current?.focus();
               }}
               className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800"
@@ -459,7 +208,7 @@ export const LocationSearchBar: React.FC<LocationSearchBarProps> = ({
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
               }`}
             >
-              All Places ({PRESET_LOCATIONS.length}+)
+              All OpenStreetMap Places
             </button>
             <button
               type="button"
@@ -501,6 +250,12 @@ export const LocationSearchBar: React.FC<LocationSearchBarProps> = ({
 
           {/* Results List */}
           <div className="overflow-y-auto divide-y divide-slate-800/80 flex-1">
+            {searchError && (
+              <div role="status" className="px-3 py-2 text-[11px] text-amber-300 bg-amber-950/30">
+                {searchError}
+              </div>
+            )}
+
             {/* Recent Searches */}
             {!query && recentSearches.length > 0 && (
               <div className="p-2 px-3 bg-slate-950/40">
@@ -526,10 +281,16 @@ export const LocationSearchBar: React.FC<LocationSearchBarProps> = ({
 
             {results.length === 0 ? (
               <div className="p-6 text-center text-slate-400">
-                <p className="font-medium text-slate-300 mb-1">No places found matching "{query}"</p>
-                <p className="text-[11px] text-slate-500">
-                  Tip: You can search any city, village, feeder, or enter GPS coordinates (e.g. 26.712, 89.284).
-                </p>
+                {isLoading ? (
+                  <p className="font-medium text-slate-300">Searching OpenStreetMap…</p>
+                ) : (
+                  <>
+                    <p className="font-medium text-slate-300 mb-1">No places found matching "{query}"</p>
+                    <p className="text-[11px] text-slate-500">
+                      Search places online or enter GPS coordinates.
+                    </p>
+                  </>
+                )}
               </div>
             ) : (
               results.map((loc, idx) => (
@@ -589,6 +350,17 @@ export const LocationSearchBar: React.FC<LocationSearchBarProps> = ({
                 </div>
               ))
             )}
+          </div>
+          <div className="px-3 py-1.5 text-[9px] text-slate-500 border-t border-slate-800">
+            ©{' '}
+            <a
+              href="https://www.openstreetmap.org/copyright"
+              target="_blank"
+              rel="noreferrer"
+              className="hover:text-slate-300 underline"
+            >
+              OpenStreetMap contributors
+            </a>
           </div>
         </div>
       )}
