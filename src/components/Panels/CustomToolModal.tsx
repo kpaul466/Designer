@@ -62,34 +62,34 @@ export const CustomToolModal: React.FC<CustomToolModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+      className="fixed inset-0 z-50 flex items-stretch justify-center overflow-hidden bg-slate-950/85 p-0 backdrop-blur-md sm:items-center sm:overflow-y-auto sm:p-4"
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="bg-slate-900 border border-slate-700 w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="flex h-dvh w-full max-w-none flex-col overflow-hidden border-0 border-slate-700 bg-slate-900 shadow-2xl sm:h-auto sm:max-h-[90dvh] sm:max-w-xl sm:rounded-2xl sm:border">
         {/* Header */}
-        <div className="p-4 px-6 border-b border-slate-800 flex items-center justify-between bg-slate-900/90 shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-amber-500 flex items-center justify-center text-slate-950 shadow">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-800 bg-slate-900/90 p-3 px-4 sm:p-4 sm:px-6">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500 text-slate-950 shadow">
               <Wrench className="w-4 h-4" />
             </div>
-            <div>
-              <h2 className="text-sm font-bold text-white flex items-center gap-2">
+            <div className="min-w-0">
+              <h2 className="flex items-center gap-2 text-sm font-bold text-white">
                 <span>Create Custom Drawing Tool & Symbol</span>
               </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
+              <p className="mt-0.5 hidden text-xs text-slate-400 sm:block">
                 Design custom insulators, switchgear, structures or landmarks that integrate into the canvas and BOQ.
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-white">
+          <button onClick={onClose} className="shrink-0 rounded-lg p-1.5 text-slate-400 hover:text-white" aria-label="Close custom tool">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-4 text-xs">
+        <form onSubmit={handleSubmit} className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 text-xs sm:p-6">
           <div>
             <label className="text-[11px] font-semibold text-slate-300 block mb-1">
               Custom Tool Name <span className="text-red-400">*</span>
@@ -193,23 +193,24 @@ export const CustomToolModal: React.FC<CustomToolModalProps> = ({
             <label className="text-[11px] font-semibold text-slate-300 block mb-1">
               Symbol Color
             </label>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {presetColors.map((c) => (
                 <button
                   key={c}
                   type="button"
                   onClick={() => setColor(c)}
-                  className={`w-7 h-7 rounded-lg border-2 transition-transform ${
+                  className={`h-7 w-7 rounded-lg border-2 transition-transform ${
                     color === c ? 'border-white scale-110 shadow-lg' : 'border-transparent'
                   }`}
                   style={{ backgroundColor: c }}
+                  aria-label={`Use ${c} color`}
                 />
               ))}
               <input
                 type="color"
                 value={color}
                 onChange={(e) => setColor(e.target.value)}
-                className="w-8 h-8 rounded cursor-pointer bg-transparent border-0 ml-2"
+                className="ml-1 h-8 w-8 cursor-pointer rounded border-0 bg-transparent"
                 title="Custom color picker"
               />
             </div>
@@ -233,39 +234,39 @@ export const CustomToolModal: React.FC<CustomToolModalProps> = ({
           </div>
 
           {/* Live Symbol Preview */}
-          <div className="p-3 bg-slate-950/70 rounded-xl border border-slate-800 flex items-center justify-between">
-            <div className="flex items-center gap-3">
+          <div className="flex items-center justify-between gap-2 rounded-xl border border-slate-800 bg-slate-950/70 p-3">
+            <div className="flex min-w-0 items-center gap-3">
               {/* Preview Icon */}
               <div
-                className="w-10 h-10 rounded-lg flex items-center justify-center font-bold text-xs text-white shadow"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white shadow"
                 style={{ backgroundColor: color }}
               >
                 {iconText || 'SYM'}
               </div>
-              <div>
-                <div className="font-semibold text-slate-100">{name || 'Tool Name'}</div>
-                <div className="text-[10px] text-slate-400">
+              <div className="min-w-0">
+                <div className="truncate font-semibold text-slate-100">{name || 'Tool Name'}</div>
+                <div className="truncate text-[10px] text-slate-400">
                   {category.toUpperCase()} · Unit: {unit} · {shape}
                 </div>
               </div>
             </div>
-            <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/60 border border-emerald-800 px-2 py-0.5 rounded">
+            <span className="shrink-0 rounded border border-emerald-800 bg-emerald-950/60 px-2 py-0.5 font-mono text-[10px] text-emerald-400">
               READY TO ADD
             </span>
           </div>
 
           {/* Action Buttons */}
-          <div className="pt-3 border-t border-slate-800 flex items-center justify-end gap-2 shrink-0">
+          <div className="flex shrink-0 flex-col-reverse items-stretch gap-2 border-t border-slate-800 pt-3 sm:flex-row sm:items-center sm:justify-end">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium"
+              className="w-full rounded-lg bg-slate-800 px-4 py-2 font-medium text-slate-300 hover:bg-slate-700 sm:w-auto"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-5 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold flex items-center gap-2 shadow-lg shadow-amber-950 transition-colors"
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-amber-500 px-5 py-2 font-bold text-slate-950 shadow-lg shadow-amber-950 transition-colors hover:bg-amber-400 sm:w-auto"
             >
               <Plus className="w-4 h-4" />
               <span>Add Custom Tool to Palette</span>

@@ -9,17 +9,19 @@
  * - High-contrast GPS pin marker with location details
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   CanvasBounds,
   GeoLocation,
+  GeoReference,
   MapFeatureSelection,
   MapRoadCandidate,
 } from '../../types/electrical';
 import { MapPin, Crosshair, ZoomIn, ZoomOut, Layers } from 'lucide-react';
-import Feature from 'ol/Feature.js';
+import Feature, { FeatureLike } from 'ol/Feature.js';
 import Map from 'ol/Map.js';
 import View from 'ol/View.js';
+import Overlay from 'ol/Overlay.js';
 import TileLayer from 'ol/layer/Tile.js';
 import VectorLayer from 'ol/layer/Vector.js';
 import DragPan from 'ol/interaction/DragPan.js';
@@ -28,6 +30,7 @@ import LineString from 'ol/geom/LineString.js';
 import Point from 'ol/geom/Point.js';
 import { fromLonLat, toLonLat, transformExtent } from 'ol/proj.js';
 import { defaults as defaultControls } from 'ol/control/defaults.js';
+import CircleStyle from 'ol/style/Circle.js';
 import { Fill, Stroke, Style, Text } from 'ol/style.js';
 import OSM from 'ol/source/OSM.js';
 import VectorSource from 'ol/source/Vector.js';
@@ -36,6 +39,16 @@ import {
   readOSMFeatureCache,
   writeOSMFeatureCache,
 } from '../../services/osmFeatureCache';
+import {
+  WbGeoPlace,
+  getWbGeoPlacesSource,
+  isGenericStreetName,
+  loadWbGeoPlaces,
+  placeToGeoLocation,
+  selectPlacesForMapExtent,
+  wbGeoCategoryColor,
+  wbGeoCategoryRadius,
+} from '../../utils/wbGeoPlaces';
 import 'ol/ol.css';
 
 interface MapUnderlayProps {
@@ -43,6 +56,8 @@ interface MapUnderlayProps {
   opacity: number;
   locationName: string;
   geoLocation?: GeoLocation;
+  /** Fixed sheet calibration shared by pole GPS and the printed map. */
+  geoReference?: GeoReference;
   zoom: number; // Viewport zoom factor
   fitZoom?: number; // Minimum / fit-to-view zoom level
   panX: number;
@@ -59,6 +74,8 @@ interface MapUnderlayProps {
   onRoadFeaturesChange?: (roads: MapRoadCandidate[]) => void;
   mapFeatures?: MapFeatureSelection;
   printMode?: boolean;
+  /** Fires when the map and its visible tiles have finished rendering. */
+  onRenderComplete?: () => void;
 }
 
 // Calculate approximate meters per pixel for given latitude and zoom level
@@ -155,13 +172,195 @@ function roadCandidatesFromFeatures(
   });
 }
 
+/** Slippy-map zoom level for a map resolution (EPSG:3857, 256px tiles). */
+function zoomForResolution(resolution: number): number {
+  return Math.log2(156543.03392 / Math.max(resolution, 1e-9));
+}
+
+/** Turns selected dataset records into map dot features. */
+/**
+ * Style factory for the WB places marker layer: category-coloured dots with
+ * name labels that switch on at high zoom (only while the placeNames toggle
+ * allows text labels). Sizes counteract the outer sheet zoom so markers keep a
+ * constant screen size.
+ */
+function createWbPlacesStyle(
+  mapFeaturesRef: React.MutableRefObject<MapFeatureSelection>,
+  outerZoomRef: React.MutableRefObject<number>
+) {
+  return (feature: FeatureLike, resolution: number): Style | Style[] | undefined => {
+    const settings = mapFeaturesRef.current;
+    if (!settings || !settings.wbPlaces) return undefined;
+
+    const place = feature.get('wbPlace') as WbGeoPlace | undefined;
+    if (!place) return undefined;
+
+    const screenScale = 1 / Math.max(outerZoomRef.current, 0.1);
+    const radius = wbGeoCategoryRadius(place.category) * screenScale;
+    const color = wbGeoCategoryColor(place.category);
+
+    const styles: Style[] = [
+      new Style({
+        image: new CircleStyle({
+          radius,
+          fill: new Fill({ color }),
+          stroke: new Stroke({ color: 'rgba(255,255,255,0.95)', width: 1.6 * screenScale }),
+        }),
+      }),
+    ];
+
+    const zoom = zoomForResolution(resolution);
+    // Habitations (villages/towns) label before POI dots, which stay dots until
+    // the user is zoomed far in; text follows the placeNames toggle. The font
+    // grows with the basemap zoom so names stay readable all the way in.
+    const labelZoom = place.category === 'locality' ? 15.2 : 16.6;
+    if (settings.placeNames && zoom >= labelZoom && place.name) {
+      const fontPx = 13.5 + Math.min(Math.max(zoom - labelZoom, 0), 3.5);
+      styles.push(
+        new Style({
+          text: new Text({
+            text: place.name,
+            font: `600 ${fontPx * screenScale}px "Plus Jakarta Sans", sans-serif`,
+            fill: new Fill({ color: '#0f172a' }),
+            stroke: new Stroke({ color: 'rgba(255,255,255,0.96)', width: 3.4 * screenScale }),
+            offsetY: -(radius + 9 * screenScale),
+            overflow: false,
+          }),
+        })
+      );
+    }
+    return styles;
+  };
+}
+
+/**
+ * Builds the WB place popup card (light theme, safe text insertion only) into
+ * the shared overlay element.
+ */
+function buildWbPlacePopup(
+  popupEl: HTMLDivElement,
+  feature: Feature<Geometry>,
+  onPlaceCanvasHere: (loc: GeoLocation) => void,
+  close: () => void
+): void {
+  const place = feature.get('wbPlace') as WbGeoPlace | undefined;
+  if (!place) return;
+
+  popupEl.innerHTML = '';
+  popupEl.className =
+    'pointer-events-auto w-max min-w-[190px] max-w-[280px] rounded-xl border border-slate-200 bg-white/95 backdrop-blur-md px-3 py-2 shadow-2xl text-[11px] text-slate-800';
+  const root = document.createElement('div');
+  root.className = 'flex flex-col gap-1';
+
+  // Title row + close button
+  const header = document.createElement('div');
+  header.className = 'flex items-start justify-between gap-2';
+  const title = document.createElement('span');
+  title.className = 'font-bold text-slate-900 break-words leading-tight';
+  title.textContent = place.name;
+  header.appendChild(title);
+  const closeButton = document.createElement('button');
+  closeButton.className =
+    'shrink-0 rounded-md p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors';
+  closeButton.setAttribute('aria-label', 'Close place details');
+  closeButton.textContent = '×';
+  closeButton.addEventListener('click', () => close());
+  header.appendChild(closeButton);
+  root.appendChild(header);
+
+  // Category + sub-type chip
+  const chipRow = document.createElement('div');
+  chipRow.className = 'flex items-center gap-1.5';
+  const dot = document.createElement('span');
+  dot.className = 'w-2 h-2 rounded-full shrink-0';
+  dot.style.backgroundColor = wbGeoCategoryColor(place.category);
+  chipRow.appendChild(dot);
+  const chip = document.createElement('span');
+  chip.className =
+    'px-1.5 py-0.5 rounded bg-sky-50 border border-sky-200 text-[9.5px] font-semibold text-sky-800 truncate';
+  chip.textContent = place.subType || place.category || 'Place';
+  chipRow.appendChild(chip);
+  root.appendChild(chipRow);
+
+  // Contextual rows
+  const rows: Array<[string, string]> = [];
+  if (place.address && !isGenericStreetName(place.address) && place.address !== place.streetName) {
+    rows.push(['Address', place.address]);
+  } else if (place.streetName && !isGenericStreetName(place.streetName)) {
+    rows.push(['Street', place.streetName]);
+  }
+  if (place.city || place.areaName) rows.push(['Area', [place.areaName, place.city].filter(Boolean).join(', ')]);
+  if (place.district) rows.push(['District', place.district]);
+  if (place.phone) rows.push(['Phone', place.phone]);
+
+  const dl = document.createElement('div');
+  dl.className = 'flex flex-col gap-0.5';
+  for (const [label, value] of rows) {
+    const row = document.createElement('div');
+    row.className = 'flex gap-1.5 items-baseline';
+    const labelEl = document.createElement('span');
+    labelEl.className = 'text-slate-400 shrink-0 w-12 text-right text-[9.5px]';
+    labelEl.textContent = label;
+    const valueEl = document.createElement('span');
+    valueEl.className = 'min-w-0 flex-1 break-words';
+    labelEl.textContent = label;
+    if (label === 'Phone') {
+      const tel = document.createElement('a');
+      tel.textContent = value;
+      tel.className = 'text-sky-700 hover:underline';
+      tel.href = `tel:${value.replace(/[^+\d]/g, '')}`;
+      valueEl.appendChild(tel);
+    } else {
+      valueEl.textContent = value;
+    }
+    row.appendChild(labelEl);
+    row.appendChild(valueEl);
+    dl.appendChild(row);
+  }
+  if (dl.childElementCount > 0) root.appendChild(dl);
+
+  // Coordinates
+  const coords = document.createElement('div');
+  coords.className = 'text-slate-500 font-mono text-[9.5px]';
+  coords.textContent = `${place.lat.toFixed(4)}° N, ${place.lng.toFixed(4)}° E`;
+  root.appendChild(coords);
+
+  // Website (safe full URL check only)
+  if (/^https?:\/\//i.test(place.website)) {
+    const link = document.createElement('a');
+    link.textContent = place.website.replace(/^https?:\/\//, '').slice(0, 40);
+    link.href = place.website;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.className = 'text-sky-700 hover:underline break-all';
+    root.appendChild(link);
+  }
+
+  // Action: reposition the drawing sheet at this place
+  const actions = document.createElement('div');
+  actions.className = 'mt-1 flex justify-center';
+  const placeButton = document.createElement('button');
+  placeButton.className =
+    'px-2 py-0.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-[9.5px] font-bold flex items-center gap-1 shadow-sm transition-colors';
+  placeButton.textContent = 'Place Canvas Here';
+  placeButton.addEventListener('click', (event) => {
+    event.stopPropagation();
+    close();
+    onPlaceCanvasHere(placeToGeoLocation(place));
+  });
+  actions.appendChild(placeButton);
+  root.appendChild(actions);
+
+  popupEl.appendChild(root);
+}
+
 export const MapUnderlay: React.FC<MapUnderlayProps> = ({
   isVisible,
   opacity,
   locationName,
   geoLocation,
+  geoReference,
   zoom,
-  fitZoom = 1.0,
   panX,
   panY,
   isLocked,
@@ -174,8 +373,16 @@ export const MapUnderlay: React.FC<MapUnderlayProps> = ({
   onPlaceCanvasHere,
   onMapCenterChange,
   onRoadFeaturesChange,
-  mapFeatures = { roads: true, rivers: true, streetNames: true, placeNames: true, crossings: true },
+  mapFeatures = {
+    roads: true,
+    rivers: true,
+    streetNames: true,
+    placeNames: true,
+    crossings: true,
+    wbPlaces: true,
+  },
   printMode = false,
+  onRenderComplete,
 }) => {
   const mapTargetRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
@@ -185,13 +392,156 @@ export const MapUnderlay: React.FC<MapUnderlayProps> = ({
   const mapFeaturesRef = useRef(mapFeatures);
   const onMapCenterChangeRef = useRef(onMapCenterChange);
   const onRoadFeaturesChangeRef = useRef(onRoadFeaturesChange);
+  const onRenderCompleteRef = useRef(onRenderComplete);
   const isLockedRef = useRef(isLocked);
   const isDraggingMapRef = useRef(false);
   const [localNamesStatus, setLocalNamesStatus] = useState('Loading local names…');
+  const [mapPixelWidth, setMapPixelWidth] = useState(canvasBounds.width);
+
+  // Active coordinates (default to Falakata, WB distribution feeder)
+  const centerLat = geoReference?.centerLat ?? geoLocation?.lat ?? 26.7124;
+  const centerLng = geoReference?.centerLng ?? geoLocation?.lng ?? 89.2845;
+
+  // --- West Bengal offline places (dataset markers + popup) ---
+  const wbPlacesSourceRef = useRef(new VectorSource<Feature<Geometry>>());
+  const wbPlacesDataRef = useRef<WbGeoPlace[] | null>(null);
+  const wbPopupOverlayRef = useRef<Overlay | null>(null);
+  const onPlaceCanvasHereRef = useRef(onPlaceCanvasHere);
+  const printModeRef = useRef(printMode);
+  const wbRebuildTimerRef = useRef<number>(0);
+  const [wbPlacesStatus, setWbPlacesStatus] = useState('');
+
+  /**
+   * Re-selects WB place markers for the current map extent (called on view
+   * changes and when the dataset finishes loading). Skipped in print mode —
+   * the printed sheet rebuild is handled by the layer itself.
+   */
+  const rebuildWbPlaces = useCallback(() => {
+    const map = mapRef.current;
+    const places = wbPlacesDataRef.current;
+    if (!map || !places) return;
+    const size = map.getSize();
+    if (!size || size[0] <= 0 || size[1] <= 0) return;
+    if (!mapFeaturesRef.current.wbPlaces) {
+      setWbPlacesStatus('');
+      return;
+    }
+
+    const view = map.getView();
+    const zoom = view.getZoom() ?? 16;
+    if (zoom < 14) {
+      if (wbPlacesSourceRef.current.getFeatures().length > 0) {
+        wbPlacesSourceRef.current.clear();
+        map.render();
+      }
+      setWbPlacesStatus('Zoom to level 14+ to show dataset places');
+      return;
+    }
+
+    const extent = transformExtent(view.calculateExtent(size), 'EPSG:3857', 'EPSG:4326') as [
+      number,
+      number,
+      number,
+      number,
+    ];
+    const selected = selectPlacesForMapExtent(places, extent);
+
+    // Diff against the current feature set instead of clearing and re-adding
+    // everything: surviving features keep their identity, so OpenLayers'
+    // declutter layout (label positions/priority) doesn't reshuffle on every
+    // pan or zoom — labels stay where they were instead of flickering.
+    const source = wbPlacesSourceRef.current;
+    const wantedIds = new Set(selected.map((place) => place.id));
+    const fittedIds = new Set<string>();
+    const stale: Feature<Geometry>[] = [];
+    for (const feature of source.getFeatures()) {
+      const place = feature.get('wbPlace') as WbGeoPlace | undefined;
+      if (place && wantedIds.has(place.id)) fittedIds.add(place.id);
+      else stale.push(feature);
+    }
+    const fresh: Feature<Geometry>[] = [];
+    for (const place of selected) {
+      if (!fittedIds.has(place.id)) {
+        fresh.push(
+          new Feature({
+            geometry: new Point(fromLonLat([place.lng, place.lat])),
+            kind: 'wb-place',
+            wbPlace: place,
+          })
+        );
+      }
+    }
+    if (stale.length > 0) source.removeFeatures(stale);
+    if (fresh.length > 0) source.addFeatures(fresh);
+    // Async render keeps declutter organisation inside OL's own frame.
+    if (stale.length > 0 || fresh.length > 0) map.render();
+    setWbPlacesStatus(`${selected.length} of ${places.length.toLocaleString()} places in view`);
+  }, []);
+
+  const scheduleWbRebuild = useCallback(
+    (delay = 250) => {
+      window.clearTimeout(wbRebuildTimerRef.current);
+      wbRebuildTimerRef.current = window.setTimeout(() => {
+        rebuildWbPlaces();
+      }, delay);
+    },
+    [rebuildWbPlaces]
+  );
+
+  // Load the bundled dataset as soon as the map is visible; markers (and the
+  // instant search tier) share the same loaded index.
+  useEffect(() => {
+    if (!isVisible || opacity <= 0) return;
+    let cancelled = false;
+    if (wbPlacesDataRef.current) {
+      scheduleWbRebuild(100);
+      return;
+    }
+    void loadWbGeoPlaces().then((places) => {
+      if (cancelled) return;
+      if (!places) {
+        setWbPlacesStatus('dataset unavailable');
+        return;
+      }
+      wbPlacesDataRef.current = places;
+      const storedLocally = getWbGeoPlacesSource() === 'indexeddb';
+      setWbPlacesStatus(
+        `${places.length.toLocaleString()} places${storedLocally ? ' · IndexedDB' : ' indexed'}`
+      );
+      scheduleWbRebuild(50);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isVisible, opacity, scheduleWbRebuild]);
+
+  useEffect(() => {
+    onPlaceCanvasHereRef.current = onPlaceCanvasHere;
+  }, [onPlaceCanvasHere]);
+
+  useEffect(() => {
+    printModeRef.current = printMode;
+  }, [printMode]);
 
   useEffect(() => {
     canvasBoundsRef.current = canvasBounds;
   }, [canvasBounds]);
+
+  // The map element can be rendered at a different CSS size from the drawing
+  // sheet (for example in the PDF preview). Adjust the map zoom by the exact
+  // size ratio so one drawing pixel keeps the same geographic size.
+  useEffect(() => {
+    const target = mapTargetRef.current;
+    if (!target) return;
+    const updateSize = () => {
+      const width = target.clientWidth;
+      if (width > 0) setMapPixelWidth(width);
+    };
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [isVisible, opacity, canvasBounds.width]);
 
   useEffect(() => {
     outerZoomRef.current = zoom;
@@ -206,22 +556,36 @@ export const MapUnderlay: React.FC<MapUnderlayProps> = ({
   useEffect(() => {
     onMapCenterChangeRef.current = onMapCenterChange;
     onRoadFeaturesChangeRef.current = onRoadFeaturesChange;
+    onRenderCompleteRef.current = onRenderComplete;
     isLockedRef.current = isLocked;
-  }, [onMapCenterChange, onRoadFeaturesChange, isLocked]);
+  }, [onMapCenterChange, onRoadFeaturesChange, onRenderComplete, isLocked]);
 
-  // Active coordinates (default to Falakata, WB distribution feeder)
-  const centerLat = geoLocation?.lat ?? 26.7124;
-  const centerLng = geoLocation?.lng ?? 89.2845;
-
-  // Real-time continuous basemap zoom calculation:
-  // As canvas zoom increases from fitZoom, continuous zoom increases smoothly
-  const baseMapZoom = mapZoomLevel || 16;
-  const zoomRatio = Math.max(zoom / Math.max(fitZoom, 0.05), 0.5);
-  const continuousMapZoom = Math.min(Math.max(baseMapZoom + Math.log2(zoomRatio), 12), 19);
+  // The calibration zoom is the geographic scale at one drawing pixel. If the
+  // map is displayed at a different CSS size, compensate with the exact ratio
+  // so the printed map stays registered with the vector sheet.
+  const baseMapZoom = geoReference?.zoom ?? mapZoomLevel ?? 16;
+  const mapScale =
+    canvasBounds.width > 0 ? mapPixelWidth / Math.max(canvasBounds.width, 1) : 1;
+  const continuousMapZoom = baseMapZoom + Math.log2(Math.max(mapScale, 0.01));
   const tileZoom = Math.floor(continuousMapZoom);
 
+  const wbPlacesStyle = createWbPlacesStyle(mapFeaturesRef, outerZoomRef);
+
+  // Popup card shown when a WB place marker is clicked (created once per map).
+  const wbPopupElRef = useRef<HTMLDivElement | null>(null);
+  if (!wbPopupElRef.current) wbPopupElRef.current = document.createElement('div');
+  const wbPopupEl = wbPopupElRef.current;
+  const hideWbPopup = () => wbPopupOverlayRef.current?.setPosition(undefined);
   useEffect(() => {
     if (!isVisible || opacity <= 0 || !mapTargetRef.current || mapRef.current) return;
+
+    const wbPopupOverlay = new Overlay({
+      element: wbPopupEl,
+      positioning: 'bottom-center',
+      offset: [0, -12],
+      stopEvent: true,
+    });
+    wbPopupOverlayRef.current = wbPopupOverlay;
 
     const map = new Map({
       target: mapTargetRef.current,
@@ -312,19 +676,52 @@ export const MapUnderlay: React.FC<MapUnderlayProps> = ({
             });
           },
         }),
+        new VectorLayer({
+          source: wbPlacesSourceRef.current,
+          declutter: true,
+          style: wbPlacesStyle,
+        }),
       ],
       view: new View({
         center: fromLonLat([centerLng, centerLat]),
         zoom: continuousMapZoom,
-        minZoom: 12,
-        maxZoom: 19,
+        minZoom: 8,
+        maxZoom: 22,
       }),
       controls: defaultControls({ zoom: false, rotate: false, attribution: false }),
       interactions: [],
     });
     mapRef.current = map;
+    map.addOverlay(wbPopupOverlay);
+    map.on('rendercomplete', () => {
+      onRenderCompleteRef.current?.();
+    });
     map.on('pointerdrag', () => {
       isDraggingMapRef.current = true;
+      hideWbPopup();
+    });
+    map.on('singleclick', (event) => {
+      if (printModeRef.current) return;
+      let hit: Feature<Geometry> | undefined;
+      map.getFeaturesAtPixel(event.pixel, {
+        layerFilter: (candidate) => candidate.getSource() === wbPlacesSourceRef.current,
+        hitTolerance: 8,
+      }).forEach((found) => {
+        if (!hit && found.get('kind') === 'wb-place') hit = found as Feature<Geometry>;
+      });
+      if (!hit) {
+        hideWbPopup();
+        return;
+      }
+      const geometry = hit.getGeometry();
+      const onPlaceCanvas = onPlaceCanvasHereRef.current;
+      buildWbPlacePopup(
+        wbPopupEl,
+        hit,
+        (loc) => onPlaceCanvas?.(loc),
+        () => hideWbPopup()
+      );
+      if (geometry instanceof Point) wbPopupOverlay.setPosition(geometry.getCoordinates());
     });
     map.on('moveend', () => {
       if (!isDraggingMapRef.current) return;
@@ -335,14 +732,66 @@ export const MapUnderlay: React.FC<MapUnderlayProps> = ({
       const [lng, lat] = toLonLat(center);
       onMapCenterChangeRef.current?.(lat, lng);
     });
+
     map.updateSize();
     map.on('moveend', () => {
       onRoadFeaturesChangeRef.current?.(
         roadCandidatesFromFeatures(map, localFeaturesRef.current, canvasBoundsRef.current)
       );
+      scheduleWbRebuild(0);
     });
 
+    // While the map is locked its surface has pointer-events none — the
+    // drawing SVG above it receives the click — and the popup above can never
+    // open through OL's own event pipeline. Hit-test from a document-level
+    // capture listener so dataset marker clicks work in every lock state.
+    const wbDocClick = (event: MouseEvent) => {
+      if (printModeRef.current) return;
+      const target = event.target as Element | null;
+      if (!target || typeof target.closest !== 'function') return;
+      if (wbPopupEl.contains(target)) return; // popup buttons handle themselves
+      const viewport = map.getViewport();
+      if (!viewport) return;
+      if (viewport.contains(event.target as Node)) return; // unlocked clicks: singleclick handles these
+      if (!target.closest('[data-canvas-surface="true"]')) return; // toolbar/modal clicks
+      const size = map.getSize();
+      const rect = viewport.getBoundingClientRect();
+      if (!size || !rect.width || !rect.height || size[0] <= 0) return;
+      const scale = rect.width / size[0]; // sheet zoom ↔ map pixel ratio
+      const x = (event.clientX - rect.left) / scale;
+      const y = (event.clientY - rect.top) / scale;
+      if (x < 0 || y < 0 || x > size[0] || y > size[1]) return;
+
+      let hit: Feature<Geometry> | undefined;
+      map.getFeaturesAtPixel([x, y], {
+        layerFilter: (candidate) => candidate.getSource() === wbPlacesSourceRef.current,
+        hitTolerance: 10,
+      }).forEach((found) => {
+        if (!hit && found.get('kind') === 'wb-place') hit = found as Feature<Geometry>;
+      });
+
+      if (hit) {
+        const geometry = hit.getGeometry();
+        const onPlaceCanvas = onPlaceCanvasHereRef.current;
+        buildWbPlacePopup(
+          wbPopupEl,
+          hit,
+          (loc) => onPlaceCanvas?.(loc),
+          () => hideWbPopup()
+        );
+        if (geometry instanceof Point) wbPopupOverlay.setPosition(geometry.getCoordinates());
+        // Marker intent wins over the drawing tool underneath.
+        event.preventDefault();
+        event.stopPropagation();
+      } else {
+        hideWbPopup();
+      }
+    };
+    document.addEventListener('click', wbDocClick, true);
+
     return () => {
+      document.removeEventListener('click', wbDocClick, true);
+      window.clearTimeout(wbRebuildTimerRef.current);
       map.setTarget(undefined);
       map.dispose();
       mapRef.current = null;
@@ -470,6 +919,7 @@ export const MapUnderlay: React.FC<MapUnderlayProps> = ({
     map.getView().setCenter(fromLonLat([centerLng, centerLat]));
     map.getView().setZoom(continuousMapZoom);
     map.updateSize();
+    scheduleWbRebuild(300);
   }, [
     centerLat,
     centerLng,
@@ -478,13 +928,15 @@ export const MapUnderlay: React.FC<MapUnderlayProps> = ({
     opacity,
     canvasBounds.width,
     canvasBounds.height,
+    mapPixelWidth,
     zoom,
+    scheduleWbRebuild,
   ]);
 
   if (!isVisible || opacity <= 0) return null;
 
-  const metersPerPixel = getMetersPerPixel(centerLat, continuousMapZoom);
-  const scaleBarMeters = Math.round(metersPerPixel * 80);
+  const metersPerPixel = getMetersPerPixel(centerLat, baseMapZoom);
+  const scaleBarMeters = Math.round((metersPerPixel * 80) / Math.max(zoom, 0.05));
 
   const centerX = canvasBounds.width / 2;
   const centerY = canvasBounds.height / 2;
@@ -591,14 +1043,14 @@ export const MapUnderlay: React.FC<MapUnderlayProps> = ({
           >
             {attribution}
           </a>}
-          {printMode && (
-            <span className="absolute bottom-1 right-2 z-10 bg-white/85 px-1.5 py-0.5 rounded text-[8px] text-slate-700 pointer-events-none">
-              {attribution}
-            </span>
+          {!printMode && (
+            <div className="absolute top-2 right-2 z-10 max-w-[60%] rounded-md bg-white/90 border border-slate-200 px-2 py-1 text-[9px] font-medium text-slate-600 shadow-sm pointer-events-none">
+              <div className="truncate">{localNamesStatus}</div>
+              {wbPlacesStatus && (
+                <div className="truncate text-sky-700">WB geo · {wbPlacesStatus}</div>
+              )}
+            </div>
           )}
-          {!printMode && <div className="absolute top-2 right-2 z-10 rounded-md bg-white/90 border border-slate-200 px-2 py-1 text-[9px] font-medium text-slate-600 shadow-sm pointer-events-none">
-            {localNamesStatus}
-          </div>}
         </div>
       </div>
 
@@ -667,11 +1119,7 @@ export const MapUnderlay: React.FC<MapUnderlayProps> = ({
               ].map((lvl) => (
                 <button
                   key={lvl.level}
-                  onClick={() =>
-                    onMapZoomLevelChange(
-                      Math.min(Math.max(lvl.level - Math.log2(zoomRatio), 12), 19)
-                    )
-                  }
+                  onClick={() => onMapZoomLevelChange(lvl.level)}
                   className={`px-1.5 py-0.5 rounded text-[9.5px] font-medium transition-colors ${
                     tileZoom === lvl.level
                       ? 'bg-sky-600 text-white font-bold shadow-xs'

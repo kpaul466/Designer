@@ -44,19 +44,19 @@ export const TemplatePickerModal: React.FC<TemplatePickerModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4"
+      className="fixed inset-0 z-50 flex items-stretch justify-center overflow-hidden bg-slate-900/60 p-0 backdrop-blur-sm sm:items-center sm:p-4"
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-4xl max-h-[92dvh] bg-white border border-slate-200 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
-        <div className="p-4 sm:p-5 border-b border-slate-200 flex items-start justify-between gap-4 bg-slate-50">
+      <div className="flex h-dvh w-full max-w-none flex-col overflow-hidden border-0 border-slate-200 bg-white shadow-2xl sm:h-auto sm:max-h-[92dvh] sm:max-w-4xl sm:rounded-2xl sm:border">
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-200 bg-slate-50 p-3 px-4 sm:p-5">
           <div className="min-w-0">
-            <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+            <h2 className="flex items-center gap-2 text-sm font-bold text-slate-900 sm:text-base">
               <Layers className="w-5 h-5 text-sky-600 shrink-0" />
               Saved Drawing Templates
             </h2>
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="mt-1 hidden text-xs text-slate-500 sm:block">
               Reusable templates you saved from your drawings. Old bundled sample templates have been removed.
             </p>
           </div>

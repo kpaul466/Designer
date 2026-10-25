@@ -2,20 +2,37 @@
   "id": "./",
   "name": "PowerLine Designer",
   "short_name": "PowerLine",
-  "description": "Electrical distribution line drawing, BOQ planning, and A4 sheet export.",
+  "description": "Electrical distribution line drawing, BOQ planning, stateful .pld file storage, and A4 sheet export.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#f1f5f9",
-  "theme_color": "#f1f5f9",
+  "background_color": "#0f172a",
+  "theme_color": "#dc2626",
   "orientation": "any",
-  "categories": ["productivity", "utilities"],
+  "categories": ["productivity", "utilities", "engineering"],
   "icons": [
     {
       "src": "./powerline-icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any maskable"
+    }
+  ],
+  "file_handlers": [
+    {
+      "action": "./",
+      "name": "PowerLine Drawing",
+      "icons": [
+        {
+          "src": "./powerline-icon.svg",
+          "sizes": "any",
+          "type": "image/svg+xml"
+        }
+      ],
+      "accept": {
+        "application/x-powerline-designer": [".pld"],
+        "application/json": [".pld", ".json"]
+      }
     }
   ]
 }

@@ -13,8 +13,20 @@ import {
   SelectedItem,
   StayItem,
   MapRoadOutline,
+  RoadLineStyle,
+  ServiceCableCore,
+  ServiceCableMaterial,
+  ServiceCableArmour,
+  ServiceCableSqmm,
 } from '../../types/electrical';
-import { Layers, Trash2, X } from 'lucide-react';
+import { Compass, Layers, MapPin, RotateCw, Trash2, X, Zap } from 'lucide-react';
+import { formatGps } from '../../utils/geoReference';
+import {
+  SERVICE_CABLE_PRESETS,
+  formatServiceCableShort,
+  normalizeServiceCableSpec,
+} from '../../utils/serviceCableUtils';
+import { getRoadLabelPlacement } from '../../utils/geometry';
 
 interface PropertyInspectorProps {
   selectedEntities: SelectedItem[];
@@ -218,6 +230,12 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
       onClose();
     };
 
+    const isFourPoleStructure = node.type === 'four_pole';
+    const defaultDtrCapacity =
+      node.type === 'dtr_63kva' ? 63 : node.type === 'dtr_100kva' ? 100 : 25;
+    const dtrCapacityValue =
+      node.properties.capacityKva ?? (isFourPoleStructure ? '' : defaultDtrCapacity);
+
     return (
       <div className="w-full h-[25dvh] min-h-32 lg:h-full lg:w-72 bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-800 p-4 flex flex-col text-slate-200 select-none z-20 shrink-0 overflow-y-auto">
         <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
@@ -253,6 +271,20 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
             </div>
           </div>
 
+          {/* GPS Position */}
+          <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-2.5">
+            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-sky-400">
+              <MapPin className="h-3.5 w-3.5" />
+              <span>GPS Position</span>
+            </div>
+            <div className="mt-1 font-mono text-[11px] font-semibold leading-relaxed text-slate-200">
+              {formatGps(node.gps)}
+            </div>
+            <p className="mt-1 text-[10px] leading-snug text-slate-500">
+              Auto-captured from the drawing sheet map calibration and updated when the pole moves.
+            </p>
+          </div>
+
           {/* Pole Number */}
           <div>
             <label className="text-[11px] text-slate-400 block mb-1">Pole Number / ID</label>
@@ -284,20 +316,33 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
           {(node.type === 'dtr_25kva' ||
             node.type === 'dtr_63kva' ||
             node.type === 'dtr_100kva' ||
-            node.type === 'dtr_conversion') && (
+            node.type === 'dtr_conversion' ||
+            isFourPoleStructure) && (
             <div>
-              <label className="text-[11px] text-slate-400 block mb-1">DTR Capacity (kVA)</label>
+              <label className="text-[11px] text-slate-400 block mb-1">
+                {isFourPoleStructure ? 'Mounted DTR Capacity (kVA)' : 'DTR Capacity (kVA)'}
+              </label>
               <select
-                value={node.properties.capacityKva || 25}
-                onChange={(e) => handleUpdateProps({ capacityKva: Number(e.target.value) as any })}
+                value={String(dtrCapacityValue)}
+                onChange={(e) =>
+                  handleUpdateProps({
+                    capacityKva: e.target.value ? (Number(e.target.value) as any) : undefined,
+                  })
+                }
                 className="w-full bg-slate-800 border border-slate-700 rounded-md px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-red-500"
               >
+                {isFourPoleStructure && <option value="">No DTR mounted</option>}
                 <option value={25}>25 kVA DTR</option>
                 <option value={63}>63 kVA DTR</option>
                 <option value={100}>100 kVA DTR</option>
                 <option value={160}>160 kVA DTR</option>
                 <option value={250}>250 kVA DTR</option>
               </select>
+              {isFourPoleStructure && (
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Select the transformer rating mounted on this structure; it is added to the BOQ.
+                </p>
+              )}
             </div>
           )}
 
@@ -371,6 +416,7 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
   if (selectedEntity.type === 'edge') {
     const edge = project.edges.find((e) => e.id === selectedEntity.id);
     if (!edge) return null;
+    const currentSpec = normalizeServiceCableSpec(edge.serviceCableSpec);
 
     const handleUpdateEdge = (updated: Partial<ConductorEdge>) => {
       const updatedEdges = project.edges.map((e) =>
@@ -430,11 +476,198 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
               <option value="acsr_3wire">ACSR 50 sq.mm 3-Wire</option>
               <option value="acsr_2wire">ACSR 50 sq.mm 2-Wire</option>
               <option value="lt_ab_cable">LT AB Cable</option>
+              <option value="service_cable">Service Cable to House</option>
               <option value="phase_conversion">Phase Conversion 1-Ph to 3-Ph</option>
               <option value="cradle_guard">Cradle Guard upto 50M</option>
               <option value="ht_oh_line">Existing HT-OH Line</option>
             </select>
           </div>
+
+          {/* Service Cable Specification (Single Phase vs 3 Phase, Cores, sq.mm, Armour) */}
+          {edge.type === 'service_cable' && (
+            <div className="rounded-xl border border-purple-500/40 bg-purple-950/20 p-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-1.5 text-xs font-bold text-purple-300">
+                  <Zap className="h-3.5 w-3.5 text-purple-400" />
+                  Service Cable Specification
+                </span>
+                <span className="rounded bg-purple-500/20 px-1.5 py-0.5 font-mono text-[9.5px] font-bold text-purple-200">
+                  {formatServiceCableShort(currentSpec)}
+                </span>
+              </div>
+
+              {/* Phase Selection: Single Phase vs Three Phase */}
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  Phase System
+                </label>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextSpec = normalizeServiceCableSpec({
+                        ...currentSpec,
+                        phase: '1_phase',
+                        core: '2_core',
+                        sizeSqmm: currentSpec.sizeSqmm || '6',
+                      });
+                      handleUpdateEdge({ serviceCableSpec: nextSpec });
+                    }}
+                    className={`py-1.5 px-2 rounded-lg text-xs font-bold border transition-colors ${
+                      currentSpec.phase === '1_phase'
+                        ? 'bg-purple-600 border-purple-500 text-white'
+                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                    }`}
+                  >
+                    1-Phase (Single)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextSpec = normalizeServiceCableSpec({
+                        ...currentSpec,
+                        phase: '3_phase',
+                        core: '4_core',
+                        sizeSqmm: currentSpec.sizeSqmm === '2.5' || currentSpec.sizeSqmm === '4' ? '16' : currentSpec.sizeSqmm,
+                        armour: 'Armoured',
+                      });
+                      handleUpdateEdge({ serviceCableSpec: nextSpec });
+                    }}
+                    className={`py-1.5 px-2 rounded-lg text-xs font-bold border transition-colors ${
+                      currentSpec.phase === '3_phase'
+                        ? 'bg-amber-600 border-amber-500 text-white'
+                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                    }`}
+                  >
+                    3-Phase (Three)
+                  </button>
+                </div>
+              </div>
+
+              {/* Core Count Selection */}
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  Number of Cores
+                </label>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {(['2_core', '4_core', '3.5_core'] as ServiceCableCore[]).map((cr) => (
+                    <button
+                      key={cr}
+                      type="button"
+                      onClick={() => {
+                        const nextSpec = normalizeServiceCableSpec({
+                          ...currentSpec,
+                          core: cr,
+                          phase: cr === '2_core' ? '1_phase' : '3_phase',
+                        });
+                        handleUpdateEdge({ serviceCableSpec: nextSpec });
+                      }}
+                      className={`py-1 px-2 rounded-lg text-xs font-semibold border transition-colors ${
+                        currentSpec.core === cr
+                          ? 'bg-sky-600 border-sky-500 text-white'
+                          : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                      }`}
+                    >
+                      {cr === '2_core' ? '2-Core' : cr === '4_core' ? '4-Core' : '3.5-Core'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Conductor Cross Section Size (sq.mm) */}
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  Conductor Size (sq.mm)
+                </label>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {(['2.5', '4', '6', '10', '16', '25', '35', '50'] as ServiceCableSqmm[]).map((sz) => (
+                    <button
+                      key={sz}
+                      type="button"
+                      onClick={() => {
+                        const nextSpec = normalizeServiceCableSpec({ ...currentSpec, sizeSqmm: sz });
+                        handleUpdateEdge({ serviceCableSpec: nextSpec });
+                      }}
+                      className={`py-1 rounded-md text-[11px] font-mono font-bold border transition-colors ${
+                        currentSpec.sizeSqmm === sz
+                          ? 'bg-purple-600 border-purple-400 text-white shadow-xs'
+                          : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                      }`}
+                    >
+                      {sz} mm²
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Conductor Material & Armouring */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                    Conductor
+                  </label>
+                  <select
+                    value={currentSpec.material || 'Al'}
+                    onChange={(e) => {
+                      const nextSpec = normalizeServiceCableSpec({
+                        ...currentSpec,
+                        material: e.target.value as ServiceCableMaterial,
+                      });
+                      handleUpdateEdge({ serviceCableSpec: nextSpec });
+                    }}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-red-500"
+                  >
+                    <option value="Al">Aluminium (Al)</option>
+                    <option value="Cu">Copper (Cu)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                    Armouring
+                  </label>
+                  <select
+                    value={currentSpec.armour || 'Unarmoured'}
+                    onChange={(e) => {
+                      const nextSpec = normalizeServiceCableSpec({
+                        ...currentSpec,
+                        armour: e.target.value as ServiceCableArmour,
+                      });
+                      handleUpdateEdge({ serviceCableSpec: nextSpec });
+                    }}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-red-500"
+                  >
+                    <option value="Unarmoured">Unarmoured (PVC)</option>
+                    <option value="Armoured">Armoured (XLPE/PVC)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Quick Presets */}
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  Quick Standard Presets
+                </label>
+                <select
+                  value=""
+                  onChange={(e) => {
+                    const preset = SERVICE_CABLE_PRESETS.find((p) => p.id === e.target.value);
+                    if (preset) {
+                      handleUpdateEdge({ serviceCableSpec: { ...preset.spec } });
+                    }
+                  }}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1.5 text-[11px] text-slate-300 focus:outline-none focus:border-red-500"
+                >
+                  <option value="" disabled>Select utility standard preset…</option>
+                  {SERVICE_CABLE_PRESETS.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
 
           <div>
             <label className="text-[11px] text-slate-400 block mb-1">Span Distance (Meters)</label>
@@ -621,6 +854,46 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
               className="w-full bg-slate-800 border border-slate-700 rounded-md px-2.5 py-1.5 text-xs text-slate-100 font-mono"
             />
           </div>
+
+          {/* Crossing Rotation Controls */}
+          <div className="rounded-xl border border-slate-700/80 bg-slate-800/40 p-3 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-[11px] font-bold text-slate-300">
+                <RotateCw className="w-3.5 h-3.5 text-sky-400" />
+                <span>Crossing Rotation</span>
+              </span>
+              <span className="font-mono text-xs font-bold text-sky-400">
+                {crossing.rotation || 0}°
+              </span>
+            </div>
+
+            <input
+              type="range"
+              min="0"
+              max="360"
+              step="5"
+              value={crossing.rotation || 0}
+              onChange={(e) => handleUpdateCrossing({ rotation: Number(e.target.value) })}
+              className="w-full accent-sky-500 cursor-pointer"
+            />
+
+            <div className="grid grid-cols-5 gap-1">
+              {[0, 45, 90, 180, 270].map((deg) => (
+                <button
+                  key={deg}
+                  type="button"
+                  onClick={() => handleUpdateCrossing({ rotation: deg })}
+                  className={`py-1 rounded text-[10px] font-mono font-bold border transition-colors ${
+                    (crossing.rotation || 0) === deg
+                      ? 'bg-sky-600 border-sky-500 text-white'
+                      : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+                  }`}
+                >
+                  {deg}°
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
         <div className="mt-auto pt-4 border-t border-slate-800">
@@ -640,6 +913,8 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
     const annotation = project.annotations.find((item) => item.id === selectedEntity.id);
     if (!annotation) return null;
 
+    const currentRotation = annotation.rotation || 0;
+
     const updateAnnotation = (updated: Partial<AnnotationItem>) => {
       onUpdateProject({
         ...project,
@@ -658,15 +933,25 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
       onClose();
     };
 
+    const setNormalizedRotation = (deg: number) => {
+      let normalized = Math.round(deg) % 360;
+      if (normalized < 0) normalized += 360;
+      updateAnnotation({ rotation: normalized });
+    };
+
+    const stepRotation = (delta: number) => {
+      setNormalizedRotation(currentRotation + delta);
+    };
+
     return (
       <div className="w-full h-[25dvh] min-h-32 lg:h-full lg:w-72 bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-800 p-4 flex flex-col text-slate-200 select-none z-20 shrink-0 overflow-y-auto">
         <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
-          <div className="font-semibold text-xs text-white uppercase tracking-wider">Street Label</div>
+          <div className="font-semibold text-xs text-white uppercase tracking-wider">Street / Custom Label</div>
           <button onClick={onClose} className="text-slate-400 hover:text-white">
             <X className="w-4 h-4" />
           </button>
         </div>
-        <div className="space-y-3 text-xs">
+        <div className="space-y-3.5 text-xs">
           <label className="block text-[11px] text-slate-400">
             Label text
             <input
@@ -674,31 +959,122 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
               type="text"
               value={annotation.text}
               onChange={(event) => updateAnnotation({ text: event.target.value })}
-              placeholder="Type a street name"
+              placeholder="e.g. STATION ROAD, FEEDER-1"
               className="mt-1 w-full bg-slate-800 border border-slate-700 rounded-md px-2.5 py-2 text-xs text-slate-100"
             />
           </label>
-          <label className="block text-[11px] text-slate-400">
-            Text size
+
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block text-[11px] text-slate-400">
+              Text size (px)
+              <input
+                type="number"
+                min="6"
+                max="96"
+                value={annotation.fontSize}
+                onChange={(event) => updateAnnotation({ fontSize: Math.max(6, Number(event.target.value)) })}
+                className="mt-1 w-full bg-slate-800 border border-slate-700 rounded-md px-2.5 py-1.5 text-xs text-slate-100 font-mono"
+              />
+            </label>
+            <div className="flex flex-col justify-end pb-1.5">
+              <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={annotation.isBold ?? false}
+                  onChange={(event) => updateAnnotation({ isBold: event.target.checked })}
+                  className="rounded accent-sky-500"
+                />
+                Bold text
+              </label>
+            </div>
+          </div>
+
+          {/* Rotation Controls */}
+          <div className="rounded-xl border border-slate-700/80 bg-slate-800/40 p-3 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-[11px] font-bold text-slate-300">
+                <RotateCw className="w-3.5 h-3.5 text-sky-400" />
+                <span>Label Rotation</span>
+              </span>
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  min="0"
+                  max="360"
+                  value={currentRotation}
+                  onChange={(e) => setNormalizedRotation(Number(e.target.value))}
+                  className="w-14 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-right font-mono text-xs font-bold text-sky-400 focus:outline-none focus:border-sky-500"
+                />
+                <span className="font-mono text-xs text-sky-400">°</span>
+              </div>
+            </div>
+
             <input
-              type="number"
-              min="6"
-              max="96"
-              value={annotation.fontSize}
-              onChange={(event) => updateAnnotation({ fontSize: Math.max(6, Number(event.target.value)) })}
-              className="mt-1 w-full bg-slate-800 border border-slate-700 rounded-md px-2.5 py-1.5 text-xs text-slate-100"
+              type="range"
+              min="0"
+              max="360"
+              step="1"
+              value={currentRotation}
+              onChange={(e) => setNormalizedRotation(Number(e.target.value))}
+              className="w-full accent-sky-500 cursor-pointer"
             />
-          </label>
-          <label className="flex items-center gap-2 text-[11px] text-slate-300">
-            <input
-              type="checkbox"
-              checked={annotation.isBold ?? false}
-              onChange={(event) => updateAnnotation({ isBold: event.target.checked })}
-              className="rounded accent-sky-500"
-            />
-            Bold label
-          </label>
+
+            {/* Steppers */}
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => stepRotation(-15)}
+                className="flex-1 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 rounded text-[10px] font-mono transition-colors"
+                title="Rotate -15 degrees"
+              >
+                -15°
+              </button>
+              <button
+                type="button"
+                onClick={() => stepRotation(-90)}
+                className="flex-1 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 rounded text-[10px] font-mono transition-colors"
+                title="Rotate -90 degrees"
+              >
+                -90°
+              </button>
+              <button
+                type="button"
+                onClick={() => stepRotation(15)}
+                className="flex-1 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 rounded text-[10px] font-mono transition-colors"
+                title="Rotate +15 degrees"
+              >
+                +15°
+              </button>
+              <button
+                type="button"
+                onClick={() => stepRotation(90)}
+                className="flex-1 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 rounded text-[10px] font-mono transition-colors"
+                title="Rotate +90 degrees"
+              >
+                +90°
+              </button>
+            </div>
+
+            {/* Presets */}
+            <div className="grid grid-cols-5 gap-1 pt-1">
+              {[0, 45, 90, 180, 270].map((deg) => (
+                <button
+                  key={deg}
+                  type="button"
+                  onClick={() => setNormalizedRotation(deg)}
+                  className={`py-1 rounded text-[10px] font-mono font-bold border transition-colors ${
+                    currentRotation === deg
+                      ? 'bg-sky-600 border-sky-500 text-white'
+                      : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+                  }`}
+                >
+                  {deg}°
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
+
         <div className="mt-auto pt-4 border-t border-slate-800">
           <button
             onClick={deleteAnnotation}
@@ -732,6 +1108,23 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
       });
       onClose();
     };
+
+    // Calculate auto alignment angle from road geometry
+    const placement = getRoadLabelPlacement(road.points);
+    const autoAngle = placement ? placement.angle : 0;
+    const effectiveRotation = road.labelRotation !== undefined ? road.labelRotation : autoAngle;
+    const isAutoAligned = road.labelRotation === undefined;
+
+    const setNormalizedRotation = (deg: number) => {
+      let normalized = Math.round(deg) % 360;
+      if (normalized < 0) normalized += 360;
+      updateRoad({ labelRotation: normalized });
+    };
+
+    const stepRotation = (delta: number) => {
+      setNormalizedRotation(effectiveRotation + delta);
+    };
+
     return (
       <div className="w-full h-[25dvh] min-h-32 lg:h-full lg:w-72 bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-800 p-4 flex flex-col text-slate-200 select-none z-20 shrink-0 overflow-y-auto">
         <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
@@ -740,15 +1133,154 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
             <X className="w-4 h-4" />
           </button>
         </div>
-        <label className="block text-[11px] text-slate-400">
-          Street name
-          <input
-            type="text"
-            value={road.name}
-            onChange={(event) => updateRoad({ name: event.target.value })}
-            className="mt-1 w-full bg-slate-800 border border-slate-700 rounded-md px-2.5 py-2 text-xs text-slate-100"
-          />
-        </label>
+
+        <div className="space-y-3.5 text-xs">
+          <label className="block text-[11px] text-slate-400">
+            Street name
+            <input
+              type="text"
+              value={road.name}
+              onChange={(event) => updateRoad({ name: event.target.value })}
+              placeholder="e.g. NH-31, FALAKATA ROAD"
+              className="mt-1 w-full bg-slate-800 border border-slate-700 rounded-md px-2.5 py-2 text-xs text-slate-100"
+            />
+          </label>
+
+          <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={road.showLabel !== false}
+              onChange={(e) => updateRoad({ showLabel: e.target.checked })}
+              className="rounded accent-sky-500"
+            />
+            Show street name on canvas
+          </label>
+
+          {road.showLabel !== false && (
+            <div className="rounded-xl border border-slate-700/80 bg-slate-800/40 p-3 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-1.5 text-[11px] font-bold text-slate-300">
+                  <RotateCw className="w-3.5 h-3.5 text-sky-400" />
+                  <span>Street Label Rotation</span>
+                </span>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min="0"
+                    max="360"
+                    value={effectiveRotation}
+                    onChange={(e) => setNormalizedRotation(Number(e.target.value))}
+                    className="w-14 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-right font-mono text-xs font-bold text-sky-400 focus:outline-none focus:border-sky-500"
+                  />
+                  <span className="font-mono text-xs text-sky-400">°</span>
+                </div>
+              </div>
+
+              <input
+                type="range"
+                min="0"
+                max="360"
+                step="1"
+                value={effectiveRotation}
+                onChange={(e) => setNormalizedRotation(Number(e.target.value))}
+                className="w-full accent-sky-500 cursor-pointer"
+              />
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => stepRotation(-15)}
+                  className="flex-1 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 rounded text-[10px] font-mono transition-colors"
+                  title="Rotate -15 degrees"
+                >
+                  -15°
+                </button>
+                <button
+                  type="button"
+                  onClick={() => stepRotation(15)}
+                  className="flex-1 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 rounded text-[10px] font-mono transition-colors"
+                  title="Rotate +15 degrees"
+                >
+                  +15°
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateRoad({ labelRotation: undefined })}
+                  className={`px-2 py-1 border rounded text-[10px] font-medium transition-colors ${
+                    isAutoAligned
+                      ? 'bg-emerald-600/30 border-emerald-500 text-emerald-300'
+                      : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+                  }`}
+                  title="Reset to road natural angle"
+                >
+                  Auto ({autoAngle}°)
+                </button>
+              </div>
+
+              <div className="grid grid-cols-5 gap-1 pt-1">
+                {[0, 45, 90, 180, 270].map((deg) => (
+                  <button
+                    key={deg}
+                    type="button"
+                    onClick={() => setNormalizedRotation(deg)}
+                    className={`py-1 rounded text-[10px] font-mono font-bold border transition-colors ${
+                      !isAutoAligned && effectiveRotation === deg
+                        ? 'bg-sky-600 border-sky-500 text-white'
+                        : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+                    }`}
+                  >
+                    {deg}°
+                  </button>
+                ))}
+              </div>
+
+              <label className="block text-[11px] text-slate-400 pt-1">
+                Label font size
+                <input
+                  type="number"
+                  min="8"
+                  max="48"
+                  value={road.labelFontSize ?? 12}
+                  onChange={(e) => updateRoad({ labelFontSize: Math.max(8, Number(e.target.value)) })}
+                  className="mt-1 w-full bg-slate-800 border border-slate-700 rounded-md px-2.5 py-1 text-xs text-slate-100 font-mono"
+                />
+              </label>
+            </div>
+          )}
+
+          <label className="block text-[11px] text-slate-400">
+            Road drawing
+            <select
+              value={road.lineStyle ?? 'single'}
+              onChange={(event) =>
+                updateRoad({ lineStyle: event.target.value as RoadLineStyle })
+              }
+              className="mt-1 w-full bg-slate-800 border border-slate-700 rounded-md px-2.5 py-2 text-xs text-slate-100"
+            >
+              <option value="single">Single line (centerline)</option>
+              <option value="double">Two lines (both road edges)</option>
+            </select>
+          </label>
+          {road.lineStyle === 'double' && (
+            <label className="block text-[11px] text-slate-400">
+              Road width (canvas units)
+              <input
+                type="number"
+                min={4}
+                max={120}
+                value={road.roadWidth ?? 16}
+                onChange={(event) => {
+                  const next = Number(event.target.value);
+                  if (Number.isFinite(next)) {
+                    updateRoad({ roadWidth: Math.min(120, Math.max(4, next)) });
+                  }
+                }}
+                className="mt-1 w-full bg-slate-800 border border-slate-700 rounded-md px-2.5 py-2 text-xs text-slate-100 font-mono"
+              />
+            </label>
+          )}
+        </div>
+
         <div className="mt-auto pt-4 border-t border-slate-800">
           <button
             onClick={deleteRoad}

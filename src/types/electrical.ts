@@ -27,6 +27,25 @@ export type NodeType =
   | 'substation_tap'
   | 'custom_symbol';
 
+export interface GpsPoint {
+  lat: number;
+  lng: number;
+}
+
+/**
+ * Geographic calibration for the fixed drawing sheet.
+ * The canvas sheet centre maps to (centerLat, centerLng) at the given
+ * OpenStreetMap zoom. This makes pole GPS and the printed map share one
+ * coordinate system, independent of canvas pan/zoom.
+ */
+export interface GeoReference {
+  centerLat: number;
+  centerLng: number;
+  zoom: number;
+  width: number;
+  height: number;
+}
+
 export interface ElectricalNode {
   id: string;
   type: NodeType;
@@ -36,6 +55,8 @@ export interface ElectricalNode {
   status: InfrastructureStatus;
   label?: string;
   customToolId?: string; // Links to CustomToolDefinition if type === 'custom_symbol'
+  /** GPS position captured from the sheet georeference when placed/moved. */
+  gps?: GpsPoint;
   properties: {
     poleNumber?: string;
     height?: '8M' | '9M' | '10M' | '11M';
@@ -54,11 +75,28 @@ export interface ElectricalNode {
   };
 }
 
+export type ServiceCablePhase = '1_phase' | '3_phase';
+export type ServiceCableCore = '2_core' | '4_core' | '3.5_core';
+export type ServiceCableSqmm = '2.5' | '4' | '6' | '10' | '16' | '25' | '35' | '50';
+export type ServiceCableMaterial = 'Al' | 'Cu';
+export type ServiceCableArmour = 'Armoured' | 'Unarmoured';
+
+export interface ServiceCableSpec {
+  phase: ServiceCablePhase;
+  core: ServiceCableCore;
+  sizeSqmm: ServiceCableSqmm;
+  material?: ServiceCableMaterial;
+  armour?: ServiceCableArmour;
+  customSpec?: string;
+}
+
 export type ConductorType =
   | 'acsr_3wire'
   | 'acsr_4wire'
   | 'acsr_2wire'
   | 'lt_ab_cable'
+  | 'service_cable'
+  | 'service_cable_3ph'
   | 'ht_ug_cable'
   | 'earth_wire'
   | 'jumper_connection'
@@ -78,6 +116,7 @@ export interface ConductorEdge {
   wireGauge?: string; // e.g. '50 sq.mm', 'Rabbit', 'Weasel', 'Dog'
   isResagging?: boolean;
   label?: string;
+  serviceCableSpec?: ServiceCableSpec;
 }
 
 export type StayType = 'ht_stay' | 'lt_stay';
@@ -100,12 +139,26 @@ export interface MapFeatureSelection {
   streetNames: boolean;
   placeNames: boolean;
   crossings: boolean;
+  /** Marker layer fed by the bundled West Bengal place dataset (offline). */
+  wbPlaces: boolean;
 }
+
+export type RoadLineStyle = 'single' | 'double';
 
 export interface MapRoadCandidate {
   id: string;
   name: string;
   points: Array<{ x: number; y: number }>;
+  /** Draw the road as one centerline or two parallel carriageway edges. */
+  lineStyle?: RoadLineStyle;
+  /** Canvas-unit distance between the two edge lines when lineStyle === 'double'. */
+  roadWidth?: number;
+  /** Rotation angle in degrees for the street name label */
+  labelRotation?: number;
+  /** Whether to render the street name label on the drawing canvas */
+  showLabel?: boolean;
+  /** Font size for the street name label */
+  labelFontSize?: number;
 }
 
 export interface MapRoadOutline extends MapRoadCandidate {
@@ -155,6 +208,8 @@ export interface IndexEntry {
 
 export type SheetSizeType = 'A4' | 'A3' | 'A2' | 'corridor' | 'square';
 
+export type WorkType = 'new_work' | 'maintenance_work';
+
 export interface ProjectMetadata {
   title: string;
   drawingNo: string;
@@ -182,6 +237,8 @@ export interface ProjectMetadata {
   sheetSize: SheetSizeType;
   orientation: 'landscape';
   scale: string;
+  /** Classification of work: New Work or Maintenance Work */
+  workType?: WorkType;
 }
 
 export interface CanvasBounds {
@@ -217,6 +274,10 @@ export interface MapSettings {
   offsetY?: number;
   isLocked: boolean;
   layerPosition?: 'underlay' | 'overlay';
+  /** Include the map underlay in PDF/print output. Hidden by default. */
+  printIncludeMap?: boolean;
+  /** Opacity for the map underlay in PDF/print output (percentage 10 to 100). */
+  printMapOpacity?: number;
   features?: MapFeatureSelection;
   pinnedPlaces?: GeoLocation[];
   activePlace?: GeoLocation | null;
@@ -247,6 +308,8 @@ export interface DrawingProject {
   customBoqOverrides?: Record<string, string>;
   canvasBounds?: CanvasBounds;
   geoLocation?: GeoLocation;
+  /** Fixed sheet calibration used for pole GPS and printed map alignment. */
+  geoReference?: GeoReference;
   mapSettings?: MapSettings;
   mapRoadOutlines?: MapRoadOutline[];
   createdAt: string;
@@ -280,6 +343,8 @@ export type ActiveTool =
   | 'acsr_3wire'
   | 'acsr_4wire'
   | 'lt_ab_cable'
+  | 'service_cable'
+  | 'service_cable_3ph'
   | 'ht_ug_cable'
   | 'earth_wire'
   | 'jumper_connection'

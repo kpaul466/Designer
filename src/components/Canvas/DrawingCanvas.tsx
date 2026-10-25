@@ -9,7 +9,7 @@
  * - Area / Location search with instant navigation and "Place Canvas Here" action
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActiveTool,
   AnnotationItem,
@@ -22,11 +22,25 @@ import {
   MapFeatureSelection,
   MapRoadCandidate,
   MapRoadOutline,
+  RoadLineStyle,
   SelectedItem,
   StayItem,
   SheetSizeType,
 } from '../../types/electrical';
-import { distance, pixelDistanceToSpanMeters, snapPointToGrid } from '../../utils/geometry';
+import {
+  canvasPointToGps,
+  createGeoReference,
+  getProjectGeoCenter,
+  withNodeGps,
+} from '../../utils/geoReference';
+import {
+  distance,
+  getRoadLabelPlacement,
+  offsetPolyline,
+  pixelDistanceToSpanMeters,
+  pointsToSvgString,
+  snapPointToGrid,
+} from '../../utils/geometry';
 import { ConductorRenderer } from './ConductorRenderer';
 import { CrossingRenderer } from './CrossingRenderer';
 import { GridBackground } from './GridBackground';
@@ -40,6 +54,7 @@ import {
   getCanvasBoundsForPageSize,
 } from '../../constants/pageSizes';
 import {
+  ChevronUp,
   Crosshair,
   Eye,
   EyeOff,
@@ -49,6 +64,7 @@ import {
   Layers,
   Map,
   Move,
+  Search,
   Sliders,
   ZoomIn,
   ZoomOut,
@@ -58,6 +74,10 @@ import {
 interface DrawingCanvasProps {
   project: DrawingProject;
   activeTool: ActiveTool;
+  roadLineStyle: RoadLineStyle;
+  roadWidth: number;
+  onRoadLineStyleChange: (style: RoadLineStyle) => void;
+  onRoadWidthChange: (width: number) => void;
   showGrid: boolean;
   snapEnabled: boolean;
   gridType: 'dots' | 'lines';
@@ -93,9 +113,33 @@ interface SelectionBox {
   isShift: boolean;
 }
 
+const DEFAULT_ROAD_WIDTH = 16;
+
+/**
+ * Return the polyline(s) that make up a road: one centerline for a single-line
+ * road, or two parallel edge lines for a two-line road.
+ */
+function getRoadEdgePoints(road: {
+  points: Array<{ x: number; y: number }>;
+  lineStyle?: 'single' | 'double';
+  roadWidth?: number;
+}): Array<Array<{ x: number; y: number }>> {
+  if (road.lineStyle !== 'double' || road.points.length < 2) {
+    return [road.points];
+  }
+
+  const requestedWidth = Number.isFinite(road.roadWidth) ? (road.roadWidth as number) : DEFAULT_ROAD_WIDTH;
+  const width = Math.min(200, Math.max(2, requestedWidth));
+  return [offsetPolyline(road.points, width / 2), offsetPolyline(road.points, -width / 2)];
+}
+
 export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   project,
   activeTool,
+  roadLineStyle,
+  roadWidth,
+  onRoadLineStyleChange,
+  onRoadWidthChange,
   showGrid,
   snapEnabled,
   gridType,
@@ -145,15 +189,22 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   const [viewportSize, setViewportSize] = useState({ width: 1200, height: 800 });
 
   useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
     const updateSize = () => {
-      if (containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        setViewportSize({ width: rect.width || 1200, height: rect.height || 800 });
-      }
+      const rect = container.getBoundingClientRect();
+      setViewportSize({ width: rect.width || 1200, height: rect.height || 800 });
     };
+
     updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(container);
     window.addEventListener('resize', updateSize);
-    return () => window.removeEventListener('resize', updateSize);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updateSize);
+    };
   }, []);
 
   // Requirement: "canvas not zoom out less then the viewing area"
@@ -163,6 +214,28 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   );
   const minZoom = fitZoom;
   const isZoomedIn = zoom > minZoom + 0.005;
+
+  // Mobile: when a panel opens/closes the canvas height changes. If the user was
+  // already viewing the fitted sheet, keep the whole sheet fitted to the new area.
+  const previousFitZoom = useRef(fitZoom);
+  useEffect(() => {
+    const previousFit = previousFitZoom.current;
+    previousFitZoom.current = fitZoom;
+    if (Math.abs(previousFit - fitZoom) < 0.002) return;
+    if (window.innerWidth >= 1024) return;
+    if (Math.abs(zoom - previousFit) >= 0.02) return;
+    if (!containerRef.current) return;
+
+    const rect = containerRef.current.getBoundingClientRect();
+    const nextFit = Math.min(rect.width / canvasBounds.width, rect.height / canvasBounds.height);
+    if (rect.width <= 0 || rect.height <= 0) return;
+
+    const centerPanX = (rect.width - canvasBounds.width * nextFit) / 2 - canvasBounds.x * nextFit;
+    const centerPanY = (rect.height - canvasBounds.height * nextFit) / 2 - canvasBounds.y * nextFit;
+
+    onZoomChange(nextFit);
+    onPanChange(centerPanX, centerPanY);
+  }, [fitZoom, zoom, canvasBounds, onZoomChange, onPanChange]);
 
   // Spacebar tracking for Hand Tool pan
   const [isSpaceDown, setIsSpaceDown] = useState(false);
@@ -221,6 +294,8 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
         sizeMode: project.mapSettings?.sizeMode ?? 'canvas_fit',
         isLocked: mapLocked,
         layerPosition: mapLayerPosition,
+        printIncludeMap: project.mapSettings?.printIncludeMap ?? false,
+        printMapOpacity: project.mapSettings?.printMapOpacity,
         features: mapFeatures,
         pinnedPlaces: project.mapSettings?.pinnedPlaces,
         activePlace: project.mapSettings?.activePlace ?? null,
@@ -228,6 +303,59 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
       updatedAt: new Date().toISOString(),
     }, false);
   }, [mapFeatures, mapLayerPosition, mapLocked, mapOpacity, onUpdateProject, project, showMap]);
+
+  // The sheet centre is the geographic anchor. Pole GPS is derived from this
+  // reference, so it stays independent of canvas pan/zoom and matches print.
+  const projectGeoCenter = useMemo(
+    () => getProjectGeoCenter(project),
+    [
+      project.geoLocation?.lat,
+      project.geoLocation?.lng,
+      project.geoReference?.centerLat,
+      project.geoReference?.centerLng,
+      project.metadata.coordinates,
+    ]
+  );
+  const geoReference = useMemo(
+    () => createGeoReference(projectGeoCenter, mapZoomLevel, canvasBounds),
+    [
+      projectGeoCenter.lat,
+      projectGeoCenter.lng,
+      mapZoomLevel,
+      canvasBounds.x,
+      canvasBounds.y,
+      canvasBounds.width,
+      canvasBounds.height,
+    ]
+  );
+
+  useEffect(() => {
+    let nodesChanged = false;
+    const nodes = project.nodes.map((node) => {
+      const next = withNodeGps(node, canvasBounds, geoReference);
+      if (next !== node) nodesChanged = true;
+      return next;
+    });
+    const saved = project.geoReference;
+    const referenceChanged =
+      !saved ||
+      Math.abs(saved.centerLat - geoReference.centerLat) > 1e-7 ||
+      Math.abs(saved.centerLng - geoReference.centerLng) > 1e-7 ||
+      Math.abs(saved.zoom - geoReference.zoom) > 1e-9 ||
+      saved.width !== geoReference.width ||
+      saved.height !== geoReference.height;
+
+    if (!nodesChanged && !referenceChanged) return;
+    onUpdateProject(
+      {
+        ...project,
+        geoReference,
+        ...(nodesChanged ? { nodes } : {}),
+        updatedAt: new Date().toISOString(),
+      },
+      false
+    );
+  }, [geoReference, project, canvasBounds, onUpdateProject]);
 
   const [showPageSizeDropdown, setShowPageSizeDropdown] = useState<boolean>(false);
   const pageSizeDropdownRef = useRef<HTMLDivElement>(null);
@@ -247,6 +375,13 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   const [isMovingCanvasMode, setIsMovingCanvasMode] = useState<boolean>(false);
   const [moveWithElements, setMoveWithElements] = useState<boolean>(true);
   const [isFloatingToolbarVisible, setIsFloatingToolbarVisible] = useState(true);
+  const [isMobileSearchExpanded, setIsMobileSearchExpanded] = useState<boolean>(true);
+
+  useEffect(() => {
+    if (showMap) {
+      setIsMobileSearchExpanded(true);
+    }
+  }, [showMap]);
   const [floatingToolbarPosition, setFloatingToolbarPosition] = useState<{ x: number; y: number } | null>(null);
   const floatingToolbarRef = useRef<HTMLDivElement>(null);
   const floatingToolbarDragOffset = useRef<{ x: number; y: number } | null>(null);
@@ -271,6 +406,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   // Dragging Nodes State
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
   const [draggingAnnotationId, setDraggingAnnotationId] = useState<string | null>(null);
+  const [rotatingAnnotationId, setRotatingAnnotationId] = useState<string | null>(null);
   const [isDrawingRoad, setIsDrawingRoad] = useState(false);
   const [roadDraftPoints, setRoadDraftPoints] = useState<Array<{ x: number; y: number }>>([]);
   const [roadStartPoint, setRoadStartPoint] = useState<{ x: number; y: number } | null>(null);
@@ -398,6 +534,14 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     hasInitialViewFitted.current = true;
   }, [handleFitToViewport, viewportSize]);
 
+  // Mobile: opening/creating another drawing should keep the sheet fitted to the screen.
+  const lastFittedProjectId = useRef(project.id);
+  useEffect(() => {
+    if (lastFittedProjectId.current === project.id) return;
+    lastFittedProjectId.current = project.id;
+    if (window.innerWidth < 1024) handleFitToViewport();
+  }, [project.id, handleFitToViewport]);
+
   useEffect(() => {
     const sizeChanged =
       previousSheetSize.current.width !== canvasBounds.width ||
@@ -486,6 +630,60 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     });
   };
 
+  // Finish the freeform road: drop duplicate points, then commit the polyline.
+  const finishRoad = useCallback(() => {
+    const cleaned = roadDraftPoints.filter(
+      (point, index) => index === 0 || distance(point, roadDraftPoints[index - 1]) > 2
+    );
+
+    if (cleaned.length > 1) {
+      const timestamp = Date.now();
+      const road: MapRoadOutline = {
+        id: `manual-road-${timestamp}`,
+        sourceId: `manual-${timestamp}`,
+        name: 'New Road',
+        points: cleaned,
+        lineStyle: roadLineStyle,
+        roadWidth,
+      };
+      onUpdateProject({
+        ...project,
+        mapRoadOutlines: [...(project.mapRoadOutlines || []), road],
+      });
+      onSelectEntities([{ type: 'mapRoad', id: road.id }]);
+    }
+
+    setIsDrawingRoad(false);
+    setRoadDraftPoints([]);
+  }, [roadDraftPoints, roadLineStyle, roadWidth, project, onUpdateProject, onSelectEntities]);
+
+  // Leaving the tool cancels an unfinished road.
+  useEffect(() => {
+    if (activeTool !== 'freeform_road') {
+      setIsDrawingRoad(false);
+      setRoadDraftPoints([]);
+    }
+  }, [activeTool]);
+
+  // Enter finishes, Escape cancels while a road is being drawn.
+  useEffect(() => {
+    if (!isDrawingRoad) return;
+
+    const handleRoadKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        finishRoad();
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        setIsDrawingRoad(false);
+        setRoadDraftPoints([]);
+      }
+    };
+
+    window.addEventListener('keydown', handleRoadKeyDown);
+    return () => window.removeEventListener('keydown', handleRoadKeyDown);
+  }, [isDrawingRoad, finishRoad]);
+
   // Mouse Down handler
   const handleMouseDown = (e: React.MouseEvent) => {
     if (!mapLocked && e.target instanceof Element && e.target.closest('.ol-viewport')) return;
@@ -529,6 +727,8 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
       'acsr_3wire',
       'acsr_4wire',
       'lt_ab_cable',
+      'service_cable',
+      'service_cable_3ph',
       'ht_ug_cable',
       'earth_wire',
       'jumper_connection',
@@ -562,8 +762,22 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     }
 
     if (activeTool === 'freeform_road') {
-      setIsDrawingRoad(true);
-      setRoadDraftPoints([canvasPoint]);
+      // The second press of a double-click ends the polyline.
+      if (e.detail >= 2) {
+        finishRoad();
+        return;
+      }
+
+      if (!isDrawingRoad) {
+        setIsDrawingRoad(true);
+        setRoadDraftPoints([snapped]);
+      } else {
+        setRoadDraftPoints((points) => {
+          const lastPoint = points[points.length - 1];
+          return !lastPoint || distance(lastPoint, snapped) > 2 ? [...points, snapped] : points;
+        });
+      }
+
       onSelectEntities([]);
       return;
     }
@@ -579,6 +793,8 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
         sourceId: `manual-${Date.now()}`,
         name: 'New Road',
         points: [roadStartPoint, snapped],
+        lineStyle: roadLineStyle,
+        roadWidth,
       };
       onUpdateProject({
         ...project,
@@ -680,6 +896,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
         rotation: 0,
         status: customDef ? customDef.defaultStatus : 'proposed',
         customToolId: customDef?.id,
+        gps: canvasPointToGps(snapped.x, snapped.y, canvasBounds, geoReference),
         properties: {
           poleNumber: `P-${project.nodes.length + 1}`,
           material: activeTool.includes('rsj') ? 'RSJ' : activeTool.includes('stp') ? 'STP' : 'PCC',
@@ -710,16 +927,6 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     const canvasPoint = clientToCanvas(e.clientX, e.clientY);
     setCursorPos(canvasPoint);
     if (onCursorMove) onCursorMove(Math.round(canvasPoint.x), Math.round(canvasPoint.y));
-
-    if (isDrawingRoad) {
-      setRoadDraftPoints((points) => {
-        const lastPoint = points[points.length - 1];
-        return !lastPoint || distance(lastPoint, canvasPoint) >= 4
-          ? [...points, canvasPoint]
-          : points;
-      });
-      return;
-    }
 
     // Requirement: Dragged by hand tool when zoomed in
     if (isPanning) {
@@ -791,6 +998,28 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
       return;
     }
 
+    if (rotatingAnnotationId) {
+      const ann = project.annotations.find((item) => item.id === rotatingAnnotationId);
+      if (ann) {
+        const dx = canvasPoint.x - ann.x;
+        const dy = canvasPoint.y - ann.y;
+        let deg = Math.round((Math.atan2(dy, dx) * 180) / Math.PI) + 90;
+        deg = ((deg % 360) + 360) % 360;
+        if (snapEnabled) {
+          deg = Math.round(deg / 15) * 15;
+          if (deg >= 360) deg = 0;
+        }
+        onUpdateProject({
+          ...project,
+          annotations: project.annotations.map((item) =>
+            item.id === rotatingAnnotationId ? { ...item, rotation: deg } : item
+          ),
+          updatedAt: new Date().toISOString(),
+        });
+      }
+      return;
+    }
+
     if (draggingAnnotationId && dragStartCursor) {
       const deltaX = canvasPoint.x - dragStartCursor.x;
       const deltaY = canvasPoint.y - dragStartCursor.y;
@@ -823,23 +1052,6 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
 
   // Mouse Up handler
   const handleMouseUp = () => {
-    if (isDrawingRoad) {
-      setIsDrawingRoad(false);
-      if (roadDraftPoints.length > 1) {
-        const road: MapRoadOutline = {
-          id: `manual-road-${Date.now()}`,
-          sourceId: `manual-${Date.now()}`,
-          name: 'New Road',
-          points: roadDraftPoints,
-        };
-        onUpdateProject({
-          ...project,
-          mapRoadOutlines: [...(project.mapRoadOutlines || []), road],
-        });
-        onSelectEntities([{ type: 'mapRoad', id: road.id }]);
-      }
-      setRoadDraftPoints([]);
-    }
     if (isPanning) {
       setIsPanning(false);
     }
@@ -930,6 +1142,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
 
     setDraggingNodeId(null);
     setDraggingAnnotationId(null);
+    setRotatingAnnotationId(null);
     setDragInitialPositions({});
   };
 
@@ -942,6 +1155,8 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
       'acsr_3wire',
       'acsr_4wire',
       'lt_ab_cable',
+      'service_cable',
+      'service_cable_3ph',
       'ht_ug_cable',
       'earth_wire',
       'jumper_connection',
@@ -954,13 +1169,42 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
         const fromNode = project.nodes.find((n) => n.id === lineStartNodeId);
         if (fromNode) {
           const spanDist = Math.round(distance(fromNode, node));
+          const houseNode =
+            fromNode.type === 'consumer_house' ? fromNode : node.type === 'consumer_house' ? node : undefined;
+          const isServiceCable = activeTool === 'service_cable' || activeTool === 'service_cable_3ph';
           const newEdge: ConductorEdge = {
             id: `edge-${Date.now()}`,
             fromNodeId: lineStartNodeId,
             toNodeId: node.id,
-            type: activeTool as any,
+            type: isServiceCable ? 'service_cable' : (activeTool as any),
             spanMeters: pixelDistanceToSpanMeters(spanDist),
             status: 'proposed',
+            serviceCableSpec:
+              activeTool === 'service_cable_3ph'
+                ? {
+                    phase: '3_phase',
+                    core: '4_core',
+                    sizeSqmm: '16',
+                    material: 'Al',
+                    armour: 'Armoured',
+                  }
+                : activeTool === 'service_cable'
+                ? {
+                    phase: '1_phase',
+                    core: '2_core',
+                    sizeSqmm: '6',
+                    material: 'Al',
+                    armour: 'Unarmoured',
+                  }
+                : undefined,
+            label:
+              isServiceCable && houseNode
+                ? houseNode.properties.serviceConnectionCount !== undefined
+                  ? `S/C-${houseNode.properties.serviceConnectionCount}`
+                  : activeTool === 'service_cable_3ph'
+                  ? '3Ø S/C'
+                  : '1Ø S/C'
+                : undefined,
           };
           onUpdateProject({
             ...project,
@@ -1031,6 +1275,15 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     }
   };
 
+  const handleStartRotatingAnnotation = (event: React.MouseEvent, annotation: AnnotationItem) => {
+    event.stopPropagation();
+    if (event.button !== 0) return;
+    setRotatingAnnotationId(annotation.id);
+    if (!isSelected(annotation.id)) {
+      onSelectEntities([{ type: 'annotation', id: annotation.id }]);
+    }
+  };
+
   const lineStartNode = project.nodes.find((n) => n.id === lineStartNodeId);
 
   // Dynamic Cursor
@@ -1041,6 +1294,9 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     if (activeTool === 'select') return 'cursor-default';
     return 'cursor-crosshair';
   };
+
+  // The road preview should land on the same grid point that a click would commit.
+  const roadPreviewCursor = snapEnabled ? snapPointToGrid(cursorPos, 20) : cursorPos;
 
   return (
     <div
@@ -1058,6 +1314,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
           opacity={mapOpacity}
           locationName={project.metadata.location}
           geoLocation={project.geoLocation}
+          geoReference={geoReference}
           zoom={zoom}
           fitZoom={fitZoom}
           panX={panX}
@@ -1079,6 +1336,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
       {/* 2. SVG Vector Drawing Canvas with Fixed Sheet Boundary */}
       <svg
         ref={svgRef}
+        data-canvas-surface="true"
         className={`w-full h-full absolute inset-0 ${showMap && !mapLocked ? 'pointer-events-none' : 'pointer-events-auto'}`}
         style={{
           transform: `translate(${panX}px, ${panY}px) scale(${zoom})`,
@@ -1207,43 +1465,135 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
         ))}
 
         {/* Selected OpenStreetMap street outlines become normal, saved drawing geometry. */}
-        {(project.mapRoadOutlines || []).map((road) => (
-          <polyline
-            key={road.id}
-            points={road.points.map(({ x, y }) => `${x},${y}`).join(' ')}
-            fill="none"
-            stroke={isSelected(road.id) ? '#0ea5e9' : '#475569'}
-            strokeWidth={isSelected(road.id) ? 4 : 2.5}
-            strokeLinejoin="round"
-            strokeLinecap="round"
-            vectorEffect="non-scaling-stroke"
-            className="cursor-pointer"
-            onMouseDown={(event) => {
-              event.stopPropagation();
-              if (event.shiftKey) {
-                onSelectEntities(
-                  isSelected(road.id)
-                    ? selectedEntities.filter((item) => item.id !== road.id)
-                    : [...selectedEntities, { type: 'mapRoad', id: road.id }]
-                );
-              } else {
-                onSelectEntities([{ type: 'mapRoad', id: road.id }]);
-              }
-            }}
-          />
-        ))}
-        {roadDraftPoints.length > 1 && (
-          <polyline
-            points={roadDraftPoints.map(({ x, y }) => `${x},${y}`).join(' ')}
-            fill="none"
-            stroke="#0f766e"
-            strokeWidth="3"
-            strokeDasharray="8 4"
-            strokeLinejoin="round"
-            strokeLinecap="round"
-            vectorEffect="non-scaling-stroke"
-            pointerEvents="none"
-          />
+        {(project.mapRoadOutlines || []).map((road) => {
+          const selected = isSelected(road.id);
+          const strokeColor = selected ? '#0ea5e9' : '#475569';
+          const strokeWidth = selected ? 4 : 2.5;
+          const edgeLines = getRoadEdgePoints(road);
+          const placement = getRoadLabelPlacement(road.points);
+          const rotation =
+            road.labelRotation !== undefined
+              ? road.labelRotation
+              : placement
+              ? placement.angle
+              : 0;
+          const labelPos = placement ? placement.point : road.points[0];
+          const labelFontSize = road.labelFontSize || 12;
+
+          return (
+            <g
+              key={road.id}
+              className="cursor-pointer"
+              onMouseDown={(event) => {
+                // While drafting a road, clicks must add points instead of selecting
+                // an existing outline underneath the cursor.
+                if (activeTool === 'freeform_road' || activeTool === 'road_segment') return;
+
+                event.stopPropagation();
+                if (event.shiftKey) {
+                  onSelectEntities(
+                    isSelected(road.id)
+                      ? selectedEntities.filter((item) => item.id !== road.id)
+                      : [...selectedEntities, { type: 'mapRoad', id: road.id }]
+                  );
+                } else {
+                  onSelectEntities([{ type: 'mapRoad', id: road.id }]);
+                }
+              }}
+            >
+              {edgeLines.map((points, index) => (
+                <polyline
+                  key={`${road.id}-edge-${index}`}
+                  points={pointsToSvgString(points)}
+                  fill="none"
+                  stroke={strokeColor}
+                  strokeWidth={strokeWidth}
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                  vectorEffect="non-scaling-stroke"
+                  pointerEvents="none"
+                />
+              ))}
+              {/* Wide invisible centerline makes a two-line road easy to select. */}
+              <polyline
+                points={pointsToSvgString(road.points)}
+                fill="none"
+                stroke="transparent"
+                strokeWidth={
+                  road.lineStyle === 'double'
+                    ? Math.max(24, road.roadWidth ?? DEFAULT_ROAD_WIDTH)
+                    : 24
+                }
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                pointerEvents="stroke"
+              />
+              {/* Rotatable Street Name Label */}
+              {road.name && road.showLabel !== false && placement && (
+                <g
+                  transform={`translate(${labelPos.x}, ${labelPos.y}) rotate(${rotation})`}
+                  className="pointer-events-none select-none"
+                >
+                  <rect
+                    x={-(road.name.length * labelFontSize * 0.32) - 6}
+                    y={-labelFontSize * 0.75}
+                    width={road.name.length * labelFontSize * 0.64 + 12}
+                    height={labelFontSize * 1.5}
+                    rx={labelFontSize * 0.35}
+                    fill={isDarkCanvas ? '#0f172a' : '#ffffff'}
+                    fillOpacity="0.88"
+                    stroke={selected ? '#0ea5e9' : isDarkCanvas ? '#334155' : '#cbd5e1'}
+                    strokeWidth={selected ? 1.5 : 1}
+                  />
+                  <text
+                    x="0"
+                    y="0"
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                    fontSize={labelFontSize}
+                    fontWeight="600"
+                    fill={selected ? '#0284c7' : isDarkCanvas ? '#f1f5f9' : '#1e293b'}
+                    className="select-none font-sans"
+                  >
+                    {road.name}
+                  </text>
+                </g>
+              )}
+            </g>
+          );
+        })}
+        {isDrawingRoad && roadDraftPoints.length > 0 && (
+          <g pointerEvents="none">
+            {getRoadEdgePoints({
+              points: [...roadDraftPoints, roadPreviewCursor],
+              lineStyle: roadLineStyle,
+              roadWidth,
+            }).map((points, index) => (
+              <polyline
+                key={`road-draft-edge-${index}`}
+                points={pointsToSvgString(points)}
+                fill="none"
+                stroke="#0f766e"
+                strokeWidth="2.5"
+                strokeDasharray="8 4"
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            ))}
+            {roadDraftPoints.map((point, index) => (
+              <circle
+                key={`road-draft-point-${index}`}
+                cx={point.x}
+                cy={point.y}
+                r={4}
+                fill="#0f766e"
+                stroke="#ffffff"
+                strokeWidth="1.5"
+                vectorEffect="non-scaling-stroke"
+              />
+            ))}
+          </g>
         )}
         {roadStartPoint && (
           <line
@@ -1327,43 +1677,122 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
         ))}
 
         {/* 5. Custom Canvas Annotations */}
-        {project.annotations.map((ann) => (
-          <g
-            key={ann.id}
-            transform={`translate(${ann.x}, ${ann.y}) rotate(${ann.rotation || 0})`}
-            onMouseDown={(event) => handleAnnotationMouseDown(event, ann)}
-            className="cursor-move"
-          >
-            {!ann.text && (
-              <rect
-                x="0"
-                y="-20"
-                width="128"
-                height="26"
-                rx="3"
-                fill={isDarkCanvas ? '#0f172a' : '#ffffff'}
-                fillOpacity="0.85"
-                stroke={isSelected(ann.id) ? '#0284c7' : '#94a3b8'}
-                strokeDasharray="4 3"
-                pointerEvents="all"
-              />
-            )}
-            <text
-              x="0"
-              y="0"
-              fontSize={ann.fontSize || 12}
-              fontWeight={ann.isBold ? 'bold' : 'normal'}
-              fill={ann.color || (isDarkCanvas ? '#f8fafc' : '#1e293b')}
-              stroke="transparent"
-              strokeWidth="12"
-              paintOrder="stroke"
-              pointerEvents="all"
-              className="select-none"
+        {project.annotations.map((ann) => {
+          const selected = isSelected(ann.id);
+          const fontSize = ann.fontSize || 12;
+          const textLength = ann.text ? ann.text.length : 12;
+          const boxWidth = Math.max(48, textLength * fontSize * 0.62 + 10);
+          const boxHeight = fontSize * 1.35;
+          const handleX = boxWidth / 2;
+          const handleY = -fontSize * 1.05 - 18;
+
+          return (
+            <g
+              key={ann.id}
+              transform={`translate(${ann.x}, ${ann.y}) rotate(${ann.rotation || 0})`}
+              onMouseDown={(event) => handleAnnotationMouseDown(event, ann)}
+              className="cursor-move"
             >
-              {ann.text || 'Street label'}
-            </text>
-          </g>
-        ))}
+              {!ann.text && (
+                <rect
+                  x="0"
+                  y="-20"
+                  width="128"
+                  height="26"
+                  rx="3"
+                  fill={isDarkCanvas ? '#0f172a' : '#ffffff'}
+                  fillOpacity="0.85"
+                  stroke={selected ? '#0284c7' : '#94a3b8'}
+                  strokeDasharray="4 3"
+                  pointerEvents="all"
+                />
+              )}
+              {/* Selection Bounding Box */}
+              {selected && (
+                <rect
+                  x="-4"
+                  y={-fontSize * 1.05}
+                  width={boxWidth}
+                  height={boxHeight}
+                  rx="4"
+                  fill="none"
+                  stroke="#0284c7"
+                  strokeWidth="1.5"
+                  strokeDasharray="4 3"
+                  pointerEvents="none"
+                />
+              )}
+              <text
+                x="0"
+                y="0"
+                fontSize={fontSize}
+                fontWeight={ann.isBold ? 'bold' : 'normal'}
+                fill={ann.color || (isDarkCanvas ? '#f8fafc' : '#1e293b')}
+                stroke="transparent"
+                strokeWidth="12"
+                paintOrder="stroke"
+                pointerEvents="all"
+                className="select-none"
+              >
+                {ann.text || 'Street label'}
+              </text>
+
+              {/* On-Canvas Rotation Handle & Angle Badge when selected */}
+              {selected && (
+                <g className="cursor-grab select-none">
+                  {/* Stem connecting bounding box to rotation handle */}
+                  <line
+                    x1={handleX}
+                    y1={-fontSize * 1.05}
+                    x2={handleX}
+                    y2={handleY}
+                    stroke="#0284c7"
+                    strokeWidth="1.5"
+                    strokeDasharray="2 2"
+                    pointerEvents="none"
+                  />
+                  {/* Circular Rotation Handle */}
+                  <circle
+                    cx={handleX}
+                    cy={handleY}
+                    r={6}
+                    fill="#0284c7"
+                    stroke="#ffffff"
+                    strokeWidth="2"
+                    className="hover:scale-125 transition-transform cursor-pointer"
+                    onMouseDown={(e) => handleStartRotatingAnnotation(e, ann)}
+                  />
+                  {/* Angle badge on handle */}
+                  <g transform={`translate(${handleX + 10}, ${handleY - 2})`} pointerEvents="none">
+                    <rect
+                      x="-2"
+                      y="-10"
+                      width="34"
+                      height="16"
+                      rx="3"
+                      fill="#0f172a"
+                      fillOpacity="0.9"
+                      stroke="#38bdf8"
+                      strokeWidth="1"
+                    />
+                    <text
+                      x="15"
+                      y="1"
+                      textAnchor="middle"
+                      dominantBaseline="central"
+                      fontSize="9"
+                      fontFamily="monospace"
+                      fontWeight="bold"
+                      fill="#38bdf8"
+                    >
+                      {ann.rotation || 0}°
+                    </text>
+                  </g>
+                </g>
+              )}
+            </g>
+          );
+        })}
 
         {/* Active Line Drafting Rubber-band Preview */}
         {lineStartNode && (
@@ -1412,6 +1841,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
           opacity={mapOpacity}
           locationName={project.metadata.location}
           geoLocation={project.geoLocation}
+          geoReference={geoReference}
           zoom={zoom}
           fitZoom={fitZoom}
           panX={panX}
@@ -1430,11 +1860,112 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
         />
       )}
 
+      {/* ---------------- FREEFORM ROAD OPTIONS ---------------- */}
+      {activeTool === 'freeform_road' && (
+        <div
+          className="absolute top-20 left-1/2 -translate-x-1/2 z-20 flex max-w-[calc(100%-24px)] flex-wrap items-center gap-2 rounded-xl border border-teal-500/40 bg-slate-900/95 px-3 py-2 text-[11px] text-slate-200 shadow-xl backdrop-blur"
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <span className="font-semibold text-teal-300">Freeform Road</span>
+
+          <div className="flex items-center gap-0.5 rounded-lg bg-slate-800 p-0.5">
+            <button
+              type="button"
+              onClick={() => onRoadLineStyleChange('single')}
+              className={`px-2 py-0.5 rounded-md transition-colors ${
+                roadLineStyle === 'single'
+                  ? 'bg-teal-600 text-white font-semibold'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+            >
+              1 line
+            </button>
+            <button
+              type="button"
+              onClick={() => onRoadLineStyleChange('double')}
+              className={`px-2 py-0.5 rounded-md transition-colors ${
+                roadLineStyle === 'double'
+                  ? 'bg-teal-600 text-white font-semibold'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+            >
+              2 lines
+            </button>
+          </div>
+
+          {roadLineStyle === 'double' && (
+            <label className="flex items-center gap-1.5 text-slate-400">
+              Width
+              <input
+                type="range"
+                min={4}
+                max={120}
+                step={2}
+                value={roadWidth}
+                onChange={(event) => onRoadWidthChange(Number(event.target.value))}
+                className="w-20 accent-teal-500"
+              />
+              <span className="w-6 text-right font-mono text-slate-200">{roadWidth}</span>
+            </label>
+          )}
+
+          <span className="text-slate-400">
+            {isDrawingRoad
+              ? 'Click to add a point · Double-click or Enter to finish · Esc cancels'
+              : 'Click to drop points'}
+          </span>
+        </div>
+      )}
+
+      {/* ---------------- MOBILE MAP SEARCH BOX (Shown when Map is ON) ---------------- */}
+      {showMap && (
+        <div
+          className="pointer-events-auto absolute top-2 left-2 right-2 z-20 block lg:hidden max-w-md mx-auto"
+          onMouseDown={(event) => event.stopPropagation()}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          {isMobileSearchExpanded ? (
+            <div className="flex items-center gap-1.5 bg-slate-900/90 hover:bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-2xl shadow-xl p-1 transition-colors">
+              <div className="flex-1 min-w-0">
+                <LocationSearchBar
+                  compact={true}
+                  currentLocationName={project.metadata.location}
+                  onSelectLocation={handleLocationSelected}
+                  onPlaceCanvasHere={handlePlaceCanvasAtLocation}
+                  origin={projectGeoCenter}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsMobileSearchExpanded(false)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors shrink-0"
+                title="Collapse search box"
+                aria-label="Collapse search box"
+              >
+                <ChevronUp className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsMobileSearchExpanded(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900/90 hover:bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-full shadow-lg text-xs font-semibold text-slate-200 transition-colors"
+              title="Open map search"
+            >
+              <Search className="w-3.5 h-3.5 text-red-400" />
+              <span className="truncate max-w-[200px]">
+                {project.metadata.location || 'Search map...'}
+              </span>
+            </button>
+          )}
+        </div>
+      )}
+
       {/* ---------------- FLOATING CANVAS & MAP MANAGER CONTROLLER ---------------- */}
       {isFloatingToolbarVisible ? (
       <div
         ref={floatingToolbarRef}
-        className="absolute z-20 flex max-w-[calc(100%-16px)] flex-col items-center pointer-events-auto"
+        className="pointer-events-auto absolute z-20 hidden max-w-[calc(100%-16px)] flex-col items-center lg:flex"
         style={{
           left: floatingToolbarPosition?.x ?? 8,
           top: floatingToolbarPosition?.y ?? 12,
@@ -1490,6 +2021,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
               currentLocationName={project.metadata.location}
               onSelectLocation={handleLocationSelected}
               onPlaceCanvasHere={handlePlaceCanvasAtLocation}
+              origin={projectGeoCenter}
             />
           </div>
 
@@ -1668,7 +2200,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
         <button
           onMouseDown={(event) => event.stopPropagation()}
           onClick={() => setIsFloatingToolbarVisible(true)}
-          className="absolute top-3 right-3 z-20 p-2 rounded-xl bg-slate-900/60 hover:bg-slate-900/95 backdrop-blur-md border border-slate-700/70 text-slate-300 shadow-lg"
+          className="absolute top-3 right-3 z-20 hidden rounded-xl border border-slate-700/70 bg-slate-900/60 p-2 text-slate-300 shadow-lg backdrop-blur-md hover:bg-slate-900/95 lg:block"
           title="Show floating toolbar"
           aria-label="Show floating toolbar"
         >

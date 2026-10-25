@@ -38,6 +38,8 @@ interface LeftToolboxProps {
   onSelectTool: (tool: ActiveTool) => void;
   customTools?: CustomToolDefinition[];
   onOpenCustomToolModal: () => void;
+  /** 'rail' is the desktop icon/name sidebar; 'drawer' fills a mobile slide-over panel. */
+  variant?: 'rail' | 'drawer';
 }
 
 interface ToolItem {
@@ -57,7 +59,11 @@ export const LeftToolbox: React.FC<LeftToolboxProps> = ({
   onSelectTool,
   customTools = [],
   onOpenCustomToolModal,
+  variant = 'rail',
 }) => {
+  const isDrawer = variant === 'drawer';
+  const labelClass = isDrawer ? 'inline' : 'hidden md:inline';
+  const blockClass = isDrawer ? 'block' : 'hidden md:block';
   const toolGroups: ToolGroup[] = [
     {
       category: 'Drafting Tools',
@@ -97,6 +103,8 @@ export const LeftToolbox: React.FC<LeftToolboxProps> = ({
         { id: 'acsr_4wire' as ActiveTool, label: 'ACSR 4-Wire (3-Ph 4-W)', badge: '4-W', icon: Spline },
         { id: 'acsr_3wire' as ActiveTool, label: 'ACSR 3-Wire', badge: '3-W', icon: Spline },
         { id: 'lt_ab_cable' as ActiveTool, label: 'LT AB Cable', badge: 'AB', icon: Spline },
+        { id: 'service_cable' as ActiveTool, label: '1-Ph Service Cable (2C)', badge: '1Ø', icon: Spline },
+        { id: 'service_cable_3ph' as ActiveTool, label: '3-Ph Service Cable (4C)', badge: '3Ø', icon: Spline },
         { id: 'ht_ug_cable' as ActiveTool, label: 'HT-OH Line', badge: 'HT', icon: Spline },
         { id: 'earth_wire' as ActiveTool, label: 'Continuous Earth Wire', badge: 'EW', icon: Spline },
         { id: 'phase_conversion' as ActiveTool, label: 'Phase Conversion', badge: '1→3', icon: Spline },
@@ -127,12 +135,18 @@ export const LeftToolbox: React.FC<LeftToolboxProps> = ({
   ];
 
   return (
-    <aside className="w-12 sm:w-16 lg:w-56 bg-white border-r border-slate-200 flex flex-col justify-between overflow-y-auto select-none shrink-0 z-20 shadow-xs">
+    <aside
+      className={
+        isDrawer
+          ? 'w-full h-full bg-white flex flex-col justify-between overflow-y-auto select-none'
+          : 'w-12 sm:w-16 lg:w-56 bg-white border-r border-slate-200 flex flex-col justify-between overflow-y-auto select-none shrink-0 z-20 shadow-xs'
+      }
+    >
       <div className="p-2 space-y-4">
         {/* Custom Tools Section */}
         <div className="space-y-1">
           <div className="flex items-center justify-between px-2 pt-1">
-            <span className="hidden md:inline text-[10px] font-bold uppercase tracking-wider text-amber-700">
+            <span className={`${labelClass} text-[10px] font-bold uppercase tracking-wider text-amber-700`}>
               Custom Tools
             </span>
             <button
@@ -141,7 +155,7 @@ export const LeftToolbox: React.FC<LeftToolboxProps> = ({
               title="Create custom electrical / civil tool"
             >
               <Plus className="w-3 h-3" />
-              <span className="hidden md:inline">Add Custom</span>
+              <span className={labelClass}>Add Custom</span>
             </button>
           </div>
 
@@ -166,8 +180,8 @@ export const LeftToolbox: React.FC<LeftToolboxProps> = ({
                     >
                       {ct.iconText.slice(0, 2)}
                     </div>
-                    <span className="text-xs truncate hidden md:inline">{ct.name}</span>
-                    <span className="ml-auto text-[9px] font-mono px-1 py-0.2 rounded hidden md:inline bg-white text-slate-600 border border-slate-200">
+                    <span className={`text-xs truncate ${labelClass}`}>{ct.name}</span>
+                    <span className={`ml-auto text-[9px] font-mono px-1 py-0.2 rounded ${labelClass} bg-white text-slate-600 border border-slate-200`}>
                       {ct.unit}
                     </span>
                   </button>
@@ -177,7 +191,7 @@ export const LeftToolbox: React.FC<LeftToolboxProps> = ({
           ) : (
             <button
               onClick={onOpenCustomToolModal}
-              className="w-full text-center py-2 px-2 border border-dashed border-slate-300 hover:border-amber-500 rounded-lg text-[11px] text-slate-500 hover:text-amber-700 hover:bg-amber-50/50 transition-colors hidden md:block"
+              className={`w-full text-center py-2 px-2 border border-dashed border-slate-300 hover:border-amber-500 rounded-lg text-[11px] text-slate-500 hover:text-amber-700 hover:bg-amber-50/50 transition-colors ${blockClass}`}
             >
               + Create Custom Symbol
             </button>
@@ -187,7 +201,7 @@ export const LeftToolbox: React.FC<LeftToolboxProps> = ({
         {/* Built-in Tool Groups */}
         {toolGroups.map((group) => (
           <div key={group.category} className="space-y-1">
-            <div className="hidden md:block px-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            <div className={`${blockClass} px-2 text-[10px] font-bold uppercase tracking-wider text-slate-400`}>
               {group.category}
             </div>
             <div className="grid grid-cols-1 gap-1">
@@ -207,10 +221,10 @@ export const LeftToolbox: React.FC<LeftToolboxProps> = ({
                     title={tool.label}
                   >
                     <Icon className="w-4 h-4 shrink-0" />
-                    <span className="text-xs truncate hidden md:inline">{tool.label}</span>
+                    <span className={`text-xs truncate ${labelClass}`}>{tool.label}</span>
                     {tool.badge && (
                       <span
-                        className={`ml-auto text-[9px] font-mono px-1 py-0.2 rounded hidden md:inline ${
+                        className={`ml-auto text-[9px] font-mono px-1 py-0.2 rounded ${labelClass} ${
                           isActive
                             ? 'bg-red-700 text-white font-semibold'
                             : 'bg-slate-100 text-slate-500 border border-slate-200'
@@ -228,9 +242,11 @@ export const LeftToolbox: React.FC<LeftToolboxProps> = ({
       </div>
 
       {/* Quick Tooltip at bottom */}
-      <div className="hidden md:block p-3 border-t border-slate-200 bg-slate-50 text-[11px] text-slate-600 leading-tight">
+      <div className={`${blockClass} p-3 border-t border-slate-200 bg-slate-50 text-[11px] text-slate-600 leading-tight`}>
         <div className="font-semibold text-slate-900 mb-0.5">Quick Guide</div>
         <div>• Click 2 poles to draw conductor wire</div>
+        <div>• Freeform Road: click points, double-click to finish</div>
+        <div>• Choose 1-line or 2-line road in the road panel</div>
         <div>• Ctrl + Scroll to zoom in/out</div>
         <div>• Hold Space or use Hand (H) to pan</div>
       </div>

@@ -6,6 +6,7 @@
 import React from 'react';
 import { ConductorEdge, ElectricalNode } from '../../types/electrical';
 import { angleBetween, midpoint, radToDeg } from '../../utils/geometry';
+import { formatServiceCableShort } from '../../utils/serviceCableUtils';
 
 interface ConductorRendererProps {
   edge: ConductorEdge;
@@ -23,15 +24,23 @@ export const ConductorRenderer: React.FC<ConductorRendererProps> = ({
   onSelect,
 }) => {
   const isProposed = edge.status === 'proposed';
+  const is3PhaseService =
+    edge.type === 'service_cable' &&
+    (edge.serviceCableSpec?.phase === '3_phase' || edge.serviceCableSpec?.core === '4_core');
+
   const color =
-    edge.type === 'lt_ab_cable'
+    edge.type === 'service_cable'
+      ? is3PhaseService
+        ? '#ea580c'
+        : '#7c3aed'
+      : edge.type === 'lt_ab_cable'
       ? '#2563eb'
       : isProposed
       ? '#dc2626'
       : '#1e293b';
 
-  const strokeWidth = edge.type === 'ht_oh_line' ? 2.8 : 2.2;
-  const isDashed = isProposed || edge.type === 'lt_ab_cable';
+  const strokeWidth = edge.type === 'ht_oh_line' || edge.type === 'service_cable' ? 2.8 : 2.2;
+  const isDashed = isProposed || edge.type === 'lt_ab_cable' || edge.type === 'service_cable';
 
   const mid = midpoint(fromNode, toNode);
   const angle = angleBetween(fromNode, toNode);
@@ -81,7 +90,15 @@ export const ConductorRenderer: React.FC<ConductorRendererProps> = ({
         y2={toNode.y}
         stroke={color}
         strokeWidth={strokeWidth}
-        strokeDasharray={isDashed ? (edge.type === 'lt_ab_cable' ? '6 4' : '8 4') : undefined}
+        strokeDasharray={
+          isDashed
+            ? edge.type === 'service_cable'
+              ? '3 3'
+              : edge.type === 'lt_ab_cable'
+              ? '6 4'
+              : '8 4'
+            : undefined
+        }
       />
 
       {/* Conductor Cross Tick Marks at the Midpoint */}
@@ -131,6 +148,23 @@ export const ConductorRenderer: React.FC<ConductorRendererProps> = ({
               y2="6"
               stroke={color}
               strokeWidth="2"
+            />
+          ))}
+        </g>
+      )}
+
+      {/* Service Cable: Cross ticks for 1-Phase (2 ticks) or 3-Phase (4 ticks) */}
+      {edge.type === 'service_cable' && (
+        <g transform={`translate(${mid.x}, ${mid.y}) rotate(${angleDeg})`}>
+          {(is3PhaseService ? [-7, -2.5, 2.5, 7] : [-3.5, 3.5]).map((offset, i) => (
+            <line
+              key={i}
+              x1={offset}
+              y1="-5"
+              x2={offset}
+              y2="5"
+              stroke={color}
+              strokeWidth="1.8"
             />
           ))}
         </g>
@@ -190,6 +224,34 @@ export const ConductorRenderer: React.FC<ConductorRendererProps> = ({
             fill={color}
           >
             {edge.label}
+          </text>
+        </g>
+      )}
+
+      {/* Service Cable Specification Badge (e.g. 1-Ph 2C 6mm² or 3-Ph 4C 16mm²) */}
+      {edge.type === 'service_cable' && (
+        <g transform={`translate(${mid.x - perpX}, ${mid.y - perpY + (edge.label ? 14 : 0)})`}>
+          <rect
+            x="-28"
+            y="-7"
+            width="56"
+            height="13"
+            fill="#ffffff"
+            fillOpacity="0.92"
+            stroke={color}
+            strokeWidth="0.8"
+            rx="3"
+          />
+          <text
+            x="0"
+            y="2.5"
+            textAnchor="middle"
+            fontSize="8"
+            fontWeight="bold"
+            fill={color}
+            className="font-mono tracking-tight"
+          >
+            {formatServiceCableShort(edge.serviceCableSpec)}
           </text>
         </g>
       )}

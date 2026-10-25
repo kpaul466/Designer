@@ -10,6 +10,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { FolderOpen, Wrench, X } from 'lucide-react';
 import {
   ActiveTool,
   CustomToolDefinition,
@@ -18,6 +19,7 @@ import {
   MapRoadCandidate,
   MapSettings,
   ProjectMetadata,
+  RoadLineStyle,
   SelectedItem,
   SheetSizeType,
 } from './types/electrical';
@@ -39,8 +41,13 @@ import { PropertyInspector } from './components/Panels/PropertyInspector';
 import { TemplatePickerModal } from './components/Panels/TemplatePickerModal';
 import { TitleBlockModal } from './components/Panels/TitleBlockModal';
 import { SavedProjectsModal } from './components/Panels/SavedProjectsModal';
+import { NewDrawingModal } from './components/Panels/NewDrawingModal';
+import { AboutDeveloperModal } from './components/Panels/AboutDeveloperModal';
+import { AppVersionModal } from './components/Panels/AppVersionModal';
+import { UpdateNotificationBanner } from './components/Toolbar/UpdateNotificationBanner';
 import {
   createBlankDrawing,
+  deleteProjectFromCatalog,
   deleteSavedTemplate,
   getSavedTemplates,
   loadActiveProject,
@@ -48,6 +55,13 @@ import {
   saveProjectToCatalog,
   getSavedProjectsCatalog,
 } from './services/localStorageService';
+import {
+  exportProjectAsPld,
+  promptOpenPldFile,
+  parsePldContent,
+  readPldFile,
+} from './services/pldFileService';
+import { prefetchWbGeoPlaces } from './utils/wbGeoPlaces';
 
 interface ClipboardData {
   nodes: DrawingProject['nodes'];
@@ -83,6 +97,10 @@ export default function App() {
   const [snapEnabled, setSnapEnabled] = useState<boolean>(true);
   const [isDarkCanvas, setIsDarkCanvas] = useState<boolean>(false);
 
+  // Tool attribute defaults (shared by the ribbon and the canvas road tools)
+  const [roadLineStyle, setRoadLineStyle] = useState<RoadLineStyle>('double');
+  const [roadWidth, setRoadWidth] = useState<number>(16);
+
   // GIS Map Layer
   const [showMap, setShowMap] = useState<boolean>(project.mapSettings?.visible ?? false);
   const [mapOpacity, setMapOpacity] = useState<number>(project.mapSettings?.opacity ?? 100);
@@ -90,12 +108,19 @@ export default function App() {
   const [mapLayerPosition, setMapLayerPosition] = useState<'underlay' | 'overlay'>(
     project.mapSettings?.layerPosition ?? 'underlay'
   );
+  const [printIncludeMap, setPrintIncludeMap] = useState<boolean>(
+    project.mapSettings?.printIncludeMap ?? false
+  );
+  const [printMapOpacity, setPrintMapOpacity] = useState<number>(
+    project.mapSettings?.printMapOpacity ?? project.mapSettings?.opacity ?? 100
+  );
   const [mapFeatures, setMapFeatures] = useState<MapFeatureSelection>({
     roads: true,
     rivers: true,
     streetNames: true,
     placeNames: true,
     crossings: true,
+    wbPlaces: true,
     ...project.mapSettings?.features,
   });
   const [availableMapRoads, setAvailableMapRoads] = useState<MapRoadCandidate[]>([]);
@@ -105,12 +130,15 @@ export default function App() {
     setMapOpacity(project.mapSettings?.opacity ?? 100);
     setMapLocked(project.mapSettings?.isLocked ?? true);
     setMapLayerPosition(project.mapSettings?.layerPosition ?? 'underlay');
+    setPrintIncludeMap(project.mapSettings?.printIncludeMap ?? false);
+    setPrintMapOpacity(project.mapSettings?.printMapOpacity ?? project.mapSettings?.opacity ?? 100);
     setMapFeatures({
       roads: true,
       rivers: true,
       streetNames: true,
       placeNames: true,
       crossings: true,
+      wbPlaces: true,
       ...project.mapSettings?.features,
     });
   }, [project.id, project.mapSettings]);
@@ -118,6 +146,19 @@ export default function App() {
     setAvailableMapRoads([]);
     setSelectedMapRoads([]);
   }, [project.id]);
+
+  // Mobile / tablet CAD tool drawer.
+  const [isToolDrawerOpen, setIsToolDrawerOpen] = useState<boolean>(false);
+
+  // The CAD tool drawer is only used below the desktop breakpoint.
+  useEffect(() => {
+    const desktopQuery = window.matchMedia('(min-width: 1024px)');
+    const handleBreakpointChange = () => {
+      if (desktopQuery.matches) setIsToolDrawerOpen(false);
+    };
+    desktopQuery.addEventListener('change', handleBreakpointChange);
+    return () => desktopQuery.removeEventListener('change', handleBreakpointChange);
+  }, []);
 
   // Modals & Panels
   const [isBoqOpen, setIsBoqOpen] = useState<boolean>(true);
@@ -129,9 +170,20 @@ export default function App() {
   const [isCustomToolModalOpen, setIsCustomToolModalOpen] = useState<boolean>(false);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState<boolean>(false);
   const [isSavedProjectsOpen, setIsSavedProjectsOpen] = useState<boolean>(false);
+  const [isNewDrawingPromptOpen, setIsNewDrawingPromptOpen] = useState<boolean>(false);
+  const [isAboutDeveloperOpen, setIsAboutDeveloperOpen] = useState<boolean>(false);
+  const [isAppVersionOpen, setIsAppVersionOpen] = useState<boolean>(false);
+  const [isDraggingFileOver, setIsDraggingFileOver] = useState<boolean>(false);
 
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Warm the West Bengal land database as soon as the app opens: the first
+  // visit downloads + indexes it once and stores it in IndexedDB; every later
+  // page load reads the search index straight from IndexedDB.
+  useEffect(() => {
+    prefetchWbGeoPlaces();
+  }, []);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -162,13 +214,15 @@ export default function App() {
     [historyIndex]
   );
 
-  const handleCreateNewDrawing = () => {
+  const handleOpenNewDrawingPrompt = () => {
+    setIsSavedProjectsOpen(false);
+    setIsTemplatesOpen(false);
+    setIsNewDrawingPromptOpen(true);
+  };
+
+  const initNewDrawing = () => {
     const newProject = createBlankDrawing();
-    const result = saveProjectToCatalog(newProject);
-    if (!result.success) {
-      showToast(result.message);
-      return;
-    }
+    saveActiveProject(newProject);
     setProject(newProject);
     setHistory([newProject]);
     setHistoryIndex(0);
@@ -180,8 +234,66 @@ export default function App() {
     setPanY(50);
     setIsSavedProjectsOpen(false);
     setIsTemplatesOpen(false);
-    showToast('Created a new blank drawing');
+    setIsNewDrawingPromptOpen(false);
+    setIsProjectSetupOpen(true);
   };
+
+  const handleSaveAndCreateNew = () => {
+    saveProjectToCatalog(project);
+    initNewDrawing();
+    showToast('Saved current drawing to catalog. Opening project setup for new drawing.');
+  };
+
+  const handleDiscardAndCreateNew = () => {
+    initNewDrawing();
+    showToast('Previous changes discarded. Opening project setup for new drawing.');
+  };
+
+  const handleDeleteAndCreateNew = () => {
+    deleteProjectFromCatalog(project.id);
+    initNewDrawing();
+    showToast('Previous drawing deleted from catalog. Opening project setup for new drawing.');
+  };
+
+  const handleLoadProjectWithState = useCallback(
+    (loadedProject: DrawingProject, viewport?: { zoom: number; panX: number; panY: number }) => {
+      saveActiveProject(loadedProject);
+      setProject(loadedProject);
+      setHistory([loadedProject]);
+      setHistoryIndex(0);
+      setSelectedEntities([]);
+      setClipboard(null);
+      if (viewport) {
+        if (typeof viewport.zoom === 'number') setZoom(viewport.zoom);
+        if (typeof viewport.panX === 'number') setPanX(viewport.panX);
+        if (typeof viewport.panY === 'number') setPanY(viewport.panY);
+      }
+      showToast(`Loaded: ${loadedProject.title}`);
+    },
+    []
+  );
+
+  const handleSavePldFile = useCallback(async () => {
+    try {
+      const res = await exportProjectAsPld(project, { zoom, panX, panY });
+      if (res.success) {
+        showToast(res.message);
+      }
+    } catch (err: any) {
+      showToast(`Save failed: ${err?.message || 'Error'}`);
+    }
+  }, [project, zoom, panX, panY]);
+
+  const handleOpenPldFile = useCallback(async () => {
+    try {
+      const res = await promptOpenPldFile();
+      if (res) {
+        handleLoadProjectWithState(res.project, res.viewport);
+      }
+    } catch (err: any) {
+      showToast(`Open failed: ${err?.message || 'Error'}`);
+    }
+  }, [handleLoadProjectWithState]);
 
   const handleLoadTemplate = (template: DrawingProject) => {
     const now = new Date().toISOString();
@@ -191,11 +303,9 @@ export default function App() {
       createdAt: now,
       updatedAt: now,
     };
-    const result = saveProjectToCatalog(newProject);
-    if (!result.success) {
-      showToast(result.message);
-      return;
-    }
+    // Session-active only until the user presses "Save" — same rule as the
+    // blank "New" drawing, so templates don't silently fill the catalog.
+    saveActiveProject(newProject);
     setProject(newProject);
     setHistory([newProject]);
     setHistoryIndex(0);
@@ -216,6 +326,8 @@ export default function App() {
       sizeMode: project.mapSettings?.sizeMode ?? 'canvas_fit',
       isLocked: mapLocked,
       layerPosition: mapLayerPosition,
+      printIncludeMap,
+      printMapOpacity,
       features: mapFeatures,
       pinnedPlaces: project.mapSettings?.pinnedPlaces,
       activePlace: project.mapSettings?.activePlace ?? null,
@@ -254,6 +366,22 @@ export default function App() {
     const layerPosition = mapLayerPosition === 'underlay' ? 'overlay' : 'underlay';
     setMapLayerPosition(layerPosition);
     updateSavedMapSettings({ layerPosition });
+  };
+
+  const handlePrintIncludeMapChange = (include: boolean) => {
+    setPrintIncludeMap(include);
+    updateSavedMapSettings({ printIncludeMap: include });
+    showToast(
+      include
+        ? 'Map will be included in PDF and printed sheets'
+        : 'Map hidden from PDF and printed sheets'
+    );
+  };
+
+  const handlePrintMapOpacityChange = (opacity: number) => {
+    const clamped = Math.min(100, Math.max(10, Math.round(opacity)));
+    setPrintMapOpacity(clamped);
+    updateSavedMapSettings({ printMapOpacity: clamped });
   };
 
   const handleToggleMapRoadSelection = (road: MapRoadCandidate) => {
@@ -510,7 +638,7 @@ export default function App() {
     const height = maxY - minY;
 
     const viewportWidth = window.innerWidth - 300; // exclude toolbars
-    const viewportHeight = window.innerHeight - 100;
+    const viewportHeight = window.innerHeight - 140; // menu bar + ribbon + status bar
 
     const fitZoom = Math.min(
       Math.max(Math.min(viewportWidth / width, viewportHeight / height), 0.25),
@@ -609,6 +737,10 @@ export default function App() {
         e.preventDefault();
         handleDeleteSelected();
       } else if (e.key === 'Escape') {
+        if (isToolDrawerOpen) {
+          setIsToolDrawerOpen(false);
+          return;
+        }
         setSelectedEntities([]);
         setActiveTool('select');
       } else if (e.key.toLowerCase() === 'v') {
@@ -667,7 +799,102 @@ export default function App() {
     handleToggleMap,
     showGrid,
     showMap,
+    isToolDrawerOpen,
   ]);
+
+  // Deep linking, Electron IPC, PWA File Handling & Window Drag-and-Drop for .pld files
+  useEffect(() => {
+    // 1. Electron Desktop IPC Listeners
+    if (typeof window !== 'undefined' && (window as any).electronAPI) {
+      const api = (window as any).electronAPI;
+      const unbindOpenFile = api.onOpenPldFile?.((data: { content: string; filePath?: string }) => {
+        try {
+          const res = parsePldContent(data.content);
+          handleLoadProjectWithState(res.project, res.viewport);
+          showToast(`Opened: ${res.project.title}`);
+        } catch (e: any) {
+          showToast(`Failed to open desktop file: ${e?.message || 'Error'}`);
+        }
+      });
+      const unbindSave = api.onTriggerSavePld?.(() => {
+        handleSavePldFile();
+      });
+      const unbindAbout = api.onOpenAboutDeveloper?.(() => {
+        setIsAboutDeveloperOpen(true);
+      });
+      const unbindVersion = api.onOpenAppVersion?.(() => {
+        setIsAppVersionOpen(true);
+      });
+
+      return () => {
+        unbindOpenFile?.();
+        unbindSave?.();
+        unbindAbout?.();
+        unbindVersion?.();
+      };
+    }
+
+    // 2. Web File Handling API (PWA file association)
+    if (typeof window !== 'undefined' && 'launchQueue' in window) {
+      (window as any).launchQueue.setConsumer(async (launchParams: any) => {
+        if (!launchParams.files || launchParams.files.length === 0) return;
+        for (const fileHandle of launchParams.files) {
+          try {
+            const file = await fileHandle.getFile();
+            const res = await readPldFile(file);
+            handleLoadProjectWithState(res.project, res.viewport);
+            showToast(`Opened: ${res.project.title}`);
+          } catch (e: any) {
+            showToast(`Failed to open file: ${e?.message || 'Error'}`);
+          }
+        }
+      });
+    }
+
+    // 3. Window Drag & Drop for .pld and .json drawing files
+    const handleDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer?.types?.includes('Files')) {
+        setIsDraggingFileOver(true);
+      }
+    };
+
+    const handleDragLeave = (e: DragEvent) => {
+      if (e.clientX <= 0 || e.clientY <= 0 || e.clientX >= window.innerWidth || e.clientY >= window.innerHeight) {
+        setIsDraggingFileOver(false);
+      }
+    };
+
+    const handleDrop = async (e: DragEvent) => {
+      e.preventDefault();
+      setIsDraggingFileOver(false);
+      const files = e.dataTransfer?.files;
+      if (files && files.length > 0) {
+        const file = files[0];
+        if (file.name.endsWith('.pld') || file.name.endsWith('.json')) {
+          try {
+            const res = await readPldFile(file);
+            handleLoadProjectWithState(res.project, res.viewport);
+            showToast(`Opened: ${res.project.title}`);
+          } catch (err: any) {
+            showToast(`Could not open dropped file: ${err?.message || 'Error'}`);
+          }
+        } else {
+          showToast('Please drop a .pld or .json PowerLine Drawing file.');
+        }
+      }
+    };
+
+    window.addEventListener('dragover', handleDragOver);
+    window.addEventListener('dragleave', handleDragLeave);
+    window.addEventListener('drop', handleDrop);
+
+    return () => {
+      window.removeEventListener('dragover', handleDragOver);
+      window.removeEventListener('dragleave', handleDragLeave);
+      window.removeEventListener('drop', handleDrop);
+    };
+  }, [handleLoadProjectWithState, handleSavePldFile]);
 
   // Handle page size changes while preserving the fixed 1:1 drawing sheet.
   const handleSelectPageSize = useCallback(
@@ -689,15 +916,38 @@ export default function App() {
 
   return (
     <div className="app-theme-light w-full h-dvh min-h-0 flex flex-col bg-slate-950 text-slate-100 overflow-hidden font-sans">
+      {/* Real-time Update Notification Alert (triggers when update is pushed) */}
+      <UpdateNotificationBanner />
+
       {/* Top CAD Navigation Bar */}
       <TopBar
         project={project}
+        activeTool={activeTool}
+        onSelectTool={setActiveTool}
+        selectedEntities={selectedEntities}
+        roadLineStyle={roadLineStyle}
+        roadWidth={roadWidth}
+        onRoadLineStyleChange={setRoadLineStyle}
+        onRoadWidthChange={setRoadWidth}
         canUndo={historyIndex > 0}
         canRedo={historyIndex < history.length - 1}
         onUndo={handleUndo}
         onRedo={handleRedo}
+        onCopy={handleCopy}
+        onPaste={handlePaste}
+        onCut={handleCut}
+        onDuplicate={handleDuplicate}
+        onSelectAll={handleSelectAll}
         onDeleteSelected={handleDeleteSelected}
         hasSelection={selectedEntities.length > 0}
+        onFitToScreen={handleFitToScreen}
+        onZoomIn={() => setZoom((prev) => Math.min(prev * 1.2, 5))}
+        onZoomOut={() => setZoom((prev) => Math.max(prev * 0.8, 0.2))}
+        onResetZoom={() => {
+          setZoom(1);
+          setPanX(100);
+          setPanY(50);
+        }}
         showGrid={showGrid}
         onToggleGrid={() => setShowGrid(!showGrid)}
         gridType={gridType}
@@ -720,8 +970,12 @@ export default function App() {
         onToggleMapLock={handleToggleMapLock}
         mapLayerPosition={mapLayerPosition}
         onToggleMapLayerPosition={handleToggleMapLayerPosition}
+        printIncludeMap={printIncludeMap}
+        printMapOpacity={printMapOpacity}
+        onPrintMapOpacityChange={handlePrintMapOpacityChange}
+        onTogglePrintMap={() => handlePrintIncludeMapChange(!printIncludeMap)}
         onOpenTemplates={() => setIsTemplatesOpen(true)}
-        onCreateDrawing={handleCreateNewDrawing}
+        onCreateDrawing={handleOpenNewDrawingPrompt}
         onOpenProjectSetup={() => setIsProjectSetupOpen(true)}
         onOpenTitleBlock={() => setIsTitleBlockOpen(true)}
         onOpenExport={() => setIsExportOpen(true)}
@@ -729,9 +983,15 @@ export default function App() {
           setIsExportOpen(true);
           setOpenOutputSettings(true);
         }}
+        onOpenCustomToolModal={() => setIsCustomToolModalOpen(true)}
+        onOpenToolDrawer={() => setIsToolDrawerOpen(true)}
         onOpenShortcuts={() => setIsShortcutsOpen(true)}
         onSave={handleSave}
         isSaving={isSaving}
+        onSavePld={handleSavePldFile}
+        onOpenPld={handleOpenPldFile}
+        onOpenAboutDeveloper={() => setIsAboutDeveloperOpen(true)}
+        onOpenAppVersion={() => setIsAppVersionOpen(true)}
         onOpenSavedProjects={() => setIsSavedProjectsOpen(true)}
         savedProjectsCount={getSavedProjectsCatalog().length}
         onSelectPageSize={handleSelectPageSize}
@@ -739,13 +999,63 @@ export default function App() {
 
       {/* Main Workspace Area (Left Toolbox + Center Drawing Canvas + Right Panels) */}
       <div className="flex-1 min-h-0 flex overflow-hidden relative">
-        {/* Left CAD Tool Palette */}
-        <LeftToolbox
-          activeTool={activeTool}
-          onSelectTool={setActiveTool}
-          customTools={project.customTools || []}
-          onOpenCustomToolModal={() => setIsCustomToolModalOpen(true)}
-        />
+        {/* Desktop CAD Tool Palette */}
+        <div className="hidden h-full shrink-0 lg:flex">
+          <LeftToolbox
+            activeTool={activeTool}
+            onSelectTool={setActiveTool}
+            customTools={project.customTools || []}
+            onOpenCustomToolModal={() => setIsCustomToolModalOpen(true)}
+          />
+        </div>
+
+        {/* Mobile / tablet CAD Tool Drawer */}
+        {isToolDrawerOpen && (
+          <div className="fixed inset-0 z-50 lg:hidden">
+            <button
+              type="button"
+              onClick={() => setIsToolDrawerOpen(false)}
+              className="absolute inset-0 h-full w-full cursor-default bg-black/50 backdrop-blur-[1px]"
+              aria-label="Close CAD tools"
+            />
+            <aside
+              role="dialog"
+              aria-modal="true"
+              aria-label="CAD tools"
+              className="absolute inset-y-0 left-0 flex w-[min(20rem,86vw)] max-w-full flex-col bg-white shadow-2xl animate-in slide-in-from-left"
+            >
+              <div className="flex h-12 shrink-0 items-center justify-between border-b border-slate-200 px-3">
+                <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
+                  <Wrench className="h-4 w-4 text-red-600" />
+                  CAD Tools
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsToolDrawerOpen(false)}
+                  className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900"
+                  aria-label="Close CAD tools"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="min-h-0 flex-1 overflow-hidden">
+                <LeftToolbox
+                  variant="drawer"
+                  activeTool={activeTool}
+                  onSelectTool={(tool) => {
+                    setActiveTool(tool);
+                    setIsToolDrawerOpen(false);
+                  }}
+                  customTools={project.customTools || []}
+                  onOpenCustomToolModal={() => {
+                    setIsToolDrawerOpen(false);
+                    setIsCustomToolModalOpen(true);
+                  }}
+                />
+              </div>
+            </aside>
+          </div>
+        )}
 
         <div className="flex-1 min-w-0 min-h-0 flex flex-col lg:flex-row overflow-hidden">
           {/* Center SVG CAD Canvas & Flexible Map */}
@@ -753,6 +1063,10 @@ export default function App() {
             <DrawingCanvas
               project={project}
               activeTool={activeTool}
+              roadLineStyle={roadLineStyle}
+              roadWidth={roadWidth}
+              onRoadLineStyleChange={setRoadLineStyle}
+              onRoadWidthChange={setRoadWidth}
               showGrid={showGrid}
               snapEnabled={snapEnabled}
               gridType={gridType}
@@ -791,6 +1105,8 @@ export default function App() {
                     sizeMode: project.mapSettings?.sizeMode ?? 'canvas_fit',
                     isLocked: mapLocked,
                     layerPosition: mapLayerPosition,
+                    printIncludeMap,
+                    printMapOpacity,
                     features: mapFeatures,
                     pinnedPlaces: project.mapSettings?.pinnedPlaces,
                     activePlace: project.mapSettings?.activePlace ?? null,
@@ -857,6 +1173,16 @@ export default function App() {
         }}
       />
 
+      {/* New Drawing Prompt Modal (Save / Discard / Delete previous drawing) */}
+      <NewDrawingModal
+        isOpen={isNewDrawingPromptOpen}
+        currentProject={project}
+        onSaveAndCreate={handleSaveAndCreateNew}
+        onDiscardAndCreate={handleDiscardAndCreateNew}
+        onDeleteAndCreate={handleDeleteAndCreateNew}
+        onClose={() => setIsNewDrawingPromptOpen(false)}
+      />
+
       {/* Local Storage Saved Projects & Blueprints Manager Modal */}
       <SavedProjectsModal
         isOpen={isSavedProjectsOpen}
@@ -869,7 +1195,7 @@ export default function App() {
           setSelectedEntities([]);
           showToast(`Loaded: ${selected.title}`);
         }}
-        onCreateNewDrawing={handleCreateNewDrawing}
+        onCreateNewDrawing={handleOpenNewDrawingPrompt}
         onClose={() => setIsSavedProjectsOpen(false)}
       />
 
@@ -884,7 +1210,7 @@ export default function App() {
           showToast(result.message);
           return result.success;
         }}
-        onCreateNewDrawing={handleCreateNewDrawing}
+        onCreateNewDrawing={handleOpenNewDrawingPrompt}
       />
 
       {/* Project Setup & Configuration Modal */}
@@ -929,7 +1255,11 @@ export default function App() {
         showMap={showMap}
         mapOpacity={mapOpacity}
         mapLayerPosition={mapLayerPosition}
+        printIncludeMap={printIncludeMap}
+        printMapOpacity={printMapOpacity}
+        onPrintMapOpacityChange={handlePrintMapOpacityChange}
         onMapVisibilityChange={handleMapVisibilityChange}
+        onPrintIncludeMapChange={handlePrintIncludeMapChange}
         onClose={() => {
           setIsExportOpen(false);
           setOpenOutputSettings(false);
@@ -948,6 +1278,36 @@ export default function App() {
         isOpen={isShortcutsOpen}
         onClose={() => setIsShortcutsOpen(false)}
       />
+
+      {/* About Developer Modal */}
+      <AboutDeveloperModal
+        isOpen={isAboutDeveloperOpen}
+        onClose={() => setIsAboutDeveloperOpen(false)}
+        onOpenVersionModal={() => setIsAppVersionOpen(true)}
+      />
+
+      {/* App Version & Cross-Platform Installers Modal */}
+      <AppVersionModal
+        isOpen={isAppVersionOpen}
+        onClose={() => setIsAppVersionOpen(false)}
+        onOpenAboutDeveloper={() => setIsAboutDeveloperOpen(true)}
+      />
+
+      {/* Drag & Drop Overlay for .PLD and .JSON Drawing Files */}
+      {isDraggingFileOver && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/85 backdrop-blur-md border-4 border-dashed border-red-500 m-4 rounded-3xl pointer-events-none animate-in fade-in duration-150">
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-red-600 text-white shadow-2xl shadow-red-950 mb-3 animate-bounce">
+            <FolderOpen className="h-8 w-8" />
+          </div>
+          <h2 className="text-xl font-bold text-white">Drop .PLD Drawing Here</h2>
+          <p className="mt-1 text-sm text-slate-300">
+            Release to open and restore drawing state automatically
+          </p>
+          <span className="mt-3 rounded-full bg-slate-800 border border-slate-700 px-3 py-1 font-mono text-xs text-red-300">
+            Supports *.pld &amp; *.json files
+          </span>
+        </div>
+      )}
 
       {/* Toast Notification */}
       {toastMessage && (

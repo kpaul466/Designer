@@ -31,6 +31,51 @@ export function distance(p1: Point, p2: Point): number {
 }
 
 /**
+ * Offset a polyline by `offset` units along its normal.
+ * Uses averaged normals with a clamped miter at interior vertices, so a
+ * two-line road stays parallel through bends without huge spikes.
+ */
+export function offsetPolyline(points: Point[], offset: number): Point[] {
+  if (points.length < 2 || offset === 0) return points;
+
+  const segmentNormals: Point[] = [];
+  for (let i = 0; i < points.length - 1; i++) {
+    const dx = points[i + 1].x - points[i].x;
+    const dy = points[i + 1].y - points[i].y;
+    const length = Math.hypot(dx, dy) || 1;
+    segmentNormals.push({ x: -dy / length, y: dx / length });
+  }
+
+  return points.map((point, index) => {
+    if (index === 0) {
+      const normal = segmentNormals[0];
+      return { x: point.x + normal.x * offset, y: point.y + normal.y * offset };
+    }
+
+    if (index === points.length - 1) {
+      const normal = segmentNormals[segmentNormals.length - 1];
+      return { x: point.x + normal.x * offset, y: point.y + normal.y * offset };
+    }
+
+    const previous = segmentNormals[index - 1];
+    const next = segmentNormals[index];
+    let nx = previous.x + next.x;
+    let ny = previous.y + next.y;
+    const length = Math.hypot(nx, ny) || 1;
+    nx /= length;
+    ny /= length;
+
+    // Clamp sharp corners so the miter cannot shoot off to infinity.
+    const cos = Math.max(0.25, previous.x * nx + previous.y * ny);
+    return { x: point.x + nx * (offset / cos), y: point.y + ny * (offset / cos) };
+  });
+}
+
+export function pointsToSvgString(points: Point[]): string {
+  return points.map(({ x, y }) => `${x},${y}`).join(' ');
+}
+
+/**
  * Angle in radians between two points
  */
 export function angleBetween(p1: Point, p2: Point): number {
@@ -102,3 +147,39 @@ export function interpolate(p1: Point, p2: Point, t: number): Point {
     y: p1.y + (p2.y - p1.y) * t,
   };
 }
+
+/**
+ * Calculate the optimal anchor point and natural tangent angle for a road label along a polyline.
+ * Finds the longest segment, returns its midpoint and readability-normalized angle in degrees.
+ */
+export function getRoadLabelPlacement(points: Point[]): { point: Point; angle: number } | null {
+  if (!points || points.length === 0) return null;
+  if (points.length === 1) return { point: points[0], angle: 0 };
+
+  let maxLen = -1;
+  let bestP1 = points[0];
+  let bestP2 = points[1];
+
+  for (let i = 0; i < points.length - 1; i++) {
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const len = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    if (len > maxLen) {
+      maxLen = len;
+      bestP1 = p1;
+      bestP2 = p2;
+    }
+  }
+
+  const mid = midpoint(bestP1, bestP2);
+  let deg = radToDeg(angleBetween(bestP1, bestP2));
+  // Keep angle readable from left-to-right (between -90 and 90 degrees)
+  while (deg > 90) deg -= 180;
+  while (deg < -90) deg += 180;
+
+  return {
+    point: mid,
+    angle: Math.round(deg),
+  };
+}
+

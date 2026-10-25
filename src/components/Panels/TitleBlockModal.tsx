@@ -2,7 +2,7 @@
  * Title Block & Project Metadata Editor Modal
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ProjectMetadata } from '../../types/electrical';
 import { Check, X } from 'lucide-react';
 
@@ -21,6 +21,12 @@ export const TitleBlockModal: React.FC<TitleBlockModalProps> = ({
 }) => {
   const [formData, setFormData] = useState<ProjectMetadata>({ ...metadata });
 
+  useEffect(() => {
+    if (isOpen) {
+      setFormData({ ...metadata });
+    }
+  }, [isOpen, metadata]);
+
   if (!isOpen) return null;
 
   const handleChange = (field: keyof ProjectMetadata, val: string) => {
@@ -35,27 +41,55 @@ export const TitleBlockModal: React.FC<TitleBlockModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 flex items-stretch justify-center overflow-hidden bg-slate-950/80 p-0 backdrop-blur-md sm:items-center sm:p-4"
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="bg-slate-900 border border-slate-700 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="flex h-dvh w-full max-w-none flex-col overflow-hidden border-0 border-slate-700 bg-slate-900 shadow-2xl sm:h-auto sm:max-h-[90dvh] sm:max-w-2xl sm:rounded-2xl sm:border">
         {/* Header */}
-        <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/90">
-          <div>
-            <h2 className="text-base font-bold text-white">Engineering Title Block & Details</h2>
-            <p className="text-xs text-slate-400 mt-0.5">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-800 bg-slate-900/90 p-3 px-4 sm:p-4">
+          <div className="min-w-0">
+            <h2 className="text-sm font-bold text-white sm:text-base">Engineering Title Block & Details</h2>
+            <p className="mt-0.5 hidden text-xs text-slate-400 sm:block">
               These details appear on the official A4 drawing sheet, legend, and export document.
             </p>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-white">
+          <button onClick={onClose} className="shrink-0 rounded-lg p-1.5 text-slate-400 hover:text-white" aria-label="Close title block">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-5 overflow-y-auto space-y-4 text-xs">
+        <form onSubmit={handleSubmit} className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 text-xs sm:p-5">
+          <div>
+            <label className="text-[11px] text-slate-400 block mb-1.5 font-semibold">Work Classification</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => handleChange('workType', 'new_work')}
+                className={`py-1.5 px-3 rounded-lg border text-xs font-semibold transition-colors ${
+                  (formData.workType ?? 'new_work') === 'new_work'
+                    ? 'bg-emerald-600 text-white border-emerald-500'
+                    : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                }`}
+              >
+                New Work
+              </button>
+              <button
+                type="button"
+                onClick={() => handleChange('workType', 'maintenance_work')}
+                className={`py-1.5 px-3 rounded-lg border text-xs font-semibold transition-colors ${
+                  formData.workType === 'maintenance_work'
+                    ? 'bg-amber-600 text-white border-amber-500'
+                    : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                }`}
+              >
+                Maintenance Work
+              </button>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="text-[11px] text-slate-400 block mb-1">Drawing Title</label>
@@ -222,17 +256,17 @@ export const TitleBlockModal: React.FC<TitleBlockModalProps> = ({
             </div>
           </div>
 
-          <div className="pt-3 border-t border-slate-800 flex justify-end gap-2">
+          <div className="flex flex-col-reverse gap-2 border-t border-slate-800 pt-3 sm:flex-row sm:justify-end">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium"
+              className="w-full rounded-lg bg-slate-800 px-4 py-1.5 font-medium text-slate-300 hover:bg-slate-700 sm:w-auto"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-4 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-semibold flex items-center gap-1.5 shadow"
+              className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-red-600 px-4 py-1.5 font-semibold text-white shadow hover:bg-red-500 sm:w-auto"
             >
               <Check className="w-4 h-4" />
               <span>Apply Title Block</span>

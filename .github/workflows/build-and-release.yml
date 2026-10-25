@@ -1,0 +1,217 @@
+name: Build, Release & Deploy Multi-Platform App
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: 'ci-cd-${{ github.ref }}'
+  cancel-in-progress: true
+
+jobs:
+  # Job 1: Build Web Application & Deploy to GitHub Pages
+  build-and-deploy-pages:
+    name: Deploy to GitHub Pages
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Configure GitHub Pages
+        id: pages
+        uses: actions/configure-pages@v5
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Generate High-Resolution App Icon
+        run: node scripts/generate-icon.mjs
+
+      - name: Build Web Application
+        env:
+          VITE_BASE_PATH: ${{ steps.pages.outputs.base_path }}/
+        run: npm run build
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  # Job 2: Build Desktop Installers (Windows, Linux, macOS)
+  build-desktop:
+    name: Build Desktop Installer (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            os: windows-latest
+            build_flag: '--win'
+          - platform: linux
+            os: ubuntu-latest
+            build_flag: '--linux'
+          - platform: macos
+            os: macos-latest
+            build_flag: '--mac'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Generate Icon
+        run: node scripts/generate-icon.mjs
+
+      - name: Build Web Bundle for Electron
+        run: npm run build
+
+      - name: Compile Electron Desktop App (${{ matrix.platform }})
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder ${{ matrix.build_flag }} --publish never
+
+      - name: Upload Desktop Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.platform }}
+          path: |
+            release/*.exe
+            release/*.dmg
+            release/*.AppImage
+            release/*.deb
+            release/*.zip
+          if-no-files-found: warn
+
+  # Job 3: Build Android Phone APK with Capacitor & Gradle
+  build-android:
+    name: Build Android Mobile APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Generate Icon
+        run: node scripts/generate-icon.mjs
+
+      - name: Build Web Bundle
+        run: npm run build
+
+      - name: Initialize & Sync Capacitor Android
+        run: |
+          npx cap add android || true
+          npx cap sync android
+
+      - name: Build Android APK with Gradle
+        run: |
+          if [ -d "android" ]; then
+            cd android
+            chmod +x gradlew
+            ./gradlew assembleDebug --no-daemon
+            mkdir -p ../release
+            cp app/build/outputs/apk/debug/app-debug.apk ../release/PowerLine-Designer-2.4.0.apk || true
+          fi
+
+      - name: Upload Android APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-android
+          path: release/*.apk
+          if-no-files-found: warn
+
+  # Job 4: Publish GitHub Release with all compiled installers
+  publish-release:
+    name: Publish Release & Distribute Binaries
+    needs: [build-desktop, build-android]
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+
+      - name: Prepare Release Directory
+        run: |
+          mkdir -p final-binaries
+          find release-artifacts -type f \( -name "*.exe" -o -name "*.dmg" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.apk" -o -name "*.zip" \) -exec cp {} final-binaries/ \;
+          ls -lah final-binaries/
+
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          name: 'PowerLine Designer v2.4.0'
+          tag_name: ${{ github.ref_name || 'v2.4.0' }}
+          draft: false
+          prerelease: false
+          files: final-binaries/*
+          body: |
+            ## PowerLine Designer v2.4.0 — Multi-Platform Release
+
+            ### 🚀 Cross-Platform Installers:
+            - **Windows**: `PowerLine-Designer-Setup-2.4.0.exe` (NSIS Installer) & portable `.exe`
+            - **Android Mobile**: `PowerLine-Designer-2.4.0.apk` (Phone & Tablet installer)
+            - **Linux**: `PowerLine-Designer-2.4.0.AppImage` & `.deb` (Debian/Ubuntu)
+            - **macOS**: `PowerLine-Designer-2.4.0.dmg` (Universal Apple Silicon & Intel)
+            - **Live Web Version**: [Launch on GitHub Pages](https://kpaul466.github.io/Designer/)
+
+            ### ✨ Key Features in v2.4.0:
+            1. **Native `.pld` File Association**: Save stateful drawings directly to local/cloud drives with full model, conductor ratings, stays, crossings, and canvas zoom/pan viewport preservation.
+            2. **Drag & Drop Drawing Loading**: Drag any `.pld` or `.json` file anywhere onto the window to open it.
+            3. **Multi-Platform Native Apps**: Electron for Windows/Mac/Linux + Capacitor for Android.
+            4. **Automated GitHub Actions CI/CD**: Automatic matrix builds generating binaries on push/tag.
+            5. **About Developer & In-App Download Center**: Interactive modals with update checks and system info.
+

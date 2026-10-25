@@ -22,7 +22,7 @@ export function createBlankDrawing(): DrawingProject {
     createdAt: now,
     updatedAt: now,
     metadata: {
-      title: '',
+      title: 'New Drawing',
       drawingNo: '',
       applicationNo: '',
       poNumber: '',
@@ -48,6 +48,7 @@ export function createBlankDrawing(): DrawingProject {
       scale: '',
       sheetSize: 'A4',
       orientation: 'landscape',
+      workType: 'new_work',
     },
     nodes: [],
     edges: [],
@@ -154,12 +155,10 @@ export function getSavedProjectsCatalog(): DrawingProject[] {
     console.error('Failed to load project catalog:', e);
   }
 
-  // If empty, initialize catalog with active project or default template
-  const initial = [loadActiveProject()];
-  try {
-    localStorage.setItem(STORAGE_KEY_CATALOG, JSON.stringify(initial));
-  } catch {}
-  return initial;
+  // An empty catalog stays empty: the active project is only ever added to
+  // the catalog when the user explicitly saves it. Seeding it here silently
+  // filed away every work-in-progress the moment a new drawing was opened.
+  return [];
 }
 
 /**

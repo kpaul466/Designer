@@ -2,7 +2,92 @@
  * Automated Bill of Quantities (BOQ) calculation & Symbol Index engine
  */
 
-import { BoqItem, ConductorEdge, ElectricalNode, IndexEntry, StayItem } from '../types/electrical';
+import {
+  BoqItem,
+  ConductorEdge,
+  ElectricalNode,
+  IndexEntry,
+  NodeType,
+  StayItem,
+} from '../types/electrical';
+import {
+  formatServiceCableFull,
+  normalizeServiceCableSpec,
+} from './serviceCableUtils';
+
+type PoleHeight = '8M' | '9M' | '10M' | '11M';
+type DtrCapacity = 16 | 25 | 63 | 100 | 160 | 250;
+
+const POLE_NODE_TYPES: ReadonlySet<NodeType> = new Set<NodeType>([
+  'pole_8m',
+  'pole_9m',
+  'pole_single',
+]);
+
+const DTR_NODE_TYPES: ReadonlySet<NodeType> = new Set<NodeType>([
+  'dtr_25kva',
+  'dtr_63kva',
+  'dtr_100kva',
+]);
+
+const DTR_CAPACITIES: DtrCapacity[] = [16, 25, 63, 100, 160, 250];
+
+const POLE_HEIGHTS: PoleHeight[] = ['8M', '9M', '10M', '11M'];
+
+const POLE_DESCRIPTIONS: Record<PoleHeight, string> = {
+  '8M': 'Erection of 8 Mtr Long PCC Pole',
+  '9M': 'Erection of 9M PCC Single Pole',
+  '10M': 'Erection of 10 Mtr Long PCC Pole',
+  '11M': 'Erection of 11 Mtr Long PCC Pole',
+};
+
+/**
+ * Resolve a pole's height from its editable attribute first, then its tool type.
+ * This keeps the BOQ in sync when a pole is changed from 8M to 9M/10M/11M (and
+ * back) in the Property Inspector, instead of trusting the original tool type.
+ */
+function getPoleHeight(node: ElectricalNode): PoleHeight | null {
+  if (!POLE_NODE_TYPES.has(node.type)) return null;
+
+  const height = node.properties.height;
+  if (height === '8M' || height === '9M' || height === '10M' || height === '11M') {
+    return height;
+  }
+
+  return node.type === 'pole_8m' ? '8M' : '9M';
+}
+
+/**
+ * Resolve the DTR rating from `properties.capacityKva` first, then the tool type.
+ * A 4-pole structure may also carry a mounted DTR via `capacityKva`.
+ */
+function getDtrCapacity(node: ElectricalNode): DtrCapacity | null {
+  if (node.type === 'dtr_conversion') return null; // counted as a conversion, not a new DTR
+
+  const isFourPole = node.type === 'four_pole';
+  if (!isFourPole && !DTR_NODE_TYPES.has(node.type)) return null;
+
+  const capacity = node.properties.capacityKva;
+  if (
+    capacity === 16 ||
+    capacity === 25 ||
+    capacity === 63 ||
+    capacity === 100 ||
+    capacity === 160 ||
+    capacity === 250
+  ) {
+    return capacity;
+  }
+
+  if (!isFourPole) {
+    if (node.type === 'dtr_63kva') return 63;
+    if (node.type === 'dtr_100kva') return 100;
+    return 25;
+  }
+
+  return null; // 4-pole structure without a mounted DTR
+}
+
 
 export function calculateBoq(
   nodes: ElectricalNode[],
@@ -13,41 +98,31 @@ export function calculateBoq(
   const items: BoqItem[] = [];
   let itemNum = 1;
 
-  // 1. Proposed 8M PCC Poles
-  const pcc8mProposed = nodes.filter(
-    (n) => n.status === 'proposed' && (n.type === 'pole_8m' || n.properties.height === '8M')
-  ).length;
-  if (pcc8mProposed > 0 || customOverrides?.['boq-pcc-8m']) {
-    items.push({
-      id: 'boq-pcc-8m',
-      itemNumber: itemNum++,
-      description: 'Erection of 8 Mtr Long PCC Pole',
-      quantity: customOverrides?.['boq-pcc-8m'] ?? `${pcc8mProposed}`,
-      unit: 'Nos',
-      isAutoCalculated: true,
-      category: 'pole',
-    });
-  }
+  // 1. PCC Poles — classified by the editable height attribute (8M / 9M / 10M / 11M)
+  const poleCounts: Record<PoleHeight, number> = { '8M': 0, '9M': 0, '10M': 0, '11M': 0 };
+  nodes.forEach((node) => {
+    if (node.status !== 'proposed') return;
+    const height = getPoleHeight(node);
+    if (height) poleCounts[height] += 1;
+  });
 
-  // 2. Proposed 9M PCC Single Poles
-  const pcc9mProposed = nodes.filter(
-    (n) =>
-      n.status === 'proposed' &&
-      (n.type === 'pole_9m' || (n.properties.height === '9M' && n.type === 'pole_single'))
-  ).length;
-  if (pcc9mProposed > 0 || customOverrides?.['boq-pcc-9m']) {
-    items.push({
-      id: 'boq-pcc-9m',
-      itemNumber: itemNum++,
-      description: 'Erection of 9M PCC Single Pole',
-      quantity: customOverrides?.['boq-pcc-9m'] ?? `${pcc9mProposed}`,
-      unit: 'Nos',
-      isAutoCalculated: true,
-      category: 'pole',
-    });
-  }
+  POLE_HEIGHTS.forEach((height) => {
+    const overrideKey = `boq-pcc-${height.toLowerCase()}`;
+    const count = poleCounts[height];
+    if (count > 0 || customOverrides?.[overrideKey]) {
+      items.push({
+        id: overrideKey,
+        itemNumber: itemNum++,
+        description: POLE_DESCRIPTIONS[height],
+        quantity: customOverrides?.[overrideKey] ?? `${count}`,
+        unit: 'Nos',
+        isAutoCalculated: true,
+        category: 'pole',
+      });
+    }
+  });
 
-  // 3. Proposed DP Structures
+  // 2. Proposed DP Structures
   const dpProposed = nodes.filter((n) => n.status === 'proposed' && n.type === 'dp_structure').length;
   if (dpProposed > 0 || customOverrides?.['boq-dp']) {
     items.push({
@@ -61,7 +136,7 @@ export function calculateBoq(
     });
   }
 
-  // 4. Proposed 4-Pole Structures
+  // 3. Proposed 4-Pole Structures
   const fourPoleProposed = nodes.filter((n) => n.status === 'proposed' && n.type === 'four_pole').length;
   if (fourPoleProposed > 0 || customOverrides?.['boq-4pole']) {
     items.push({
@@ -75,21 +150,45 @@ export function calculateBoq(
     });
   }
 
-  // 5. Transformers
-  const dtr25 = nodes.filter((n) => n.status === 'proposed' && n.type === 'dtr_25kva').length;
-  if (dtr25 > 0 || customOverrides?.['boq-dtr-25']) {
-    items.push({
-      id: 'boq-dtr-25',
-      itemNumber: itemNum++,
-      description: 'Propose of 25 KVA DTR on 9M PCC Pole',
-      quantity: customOverrides?.['boq-dtr-25'] ?? `${dtr25}`,
-      unit: 'Nos',
-      isAutoCalculated: true,
-      category: 'transformer',
-    });
-  }
+  // 4. Distribution Transformers — classified by the editable capacity attribute.
+  // This also counts a DTR mounted on a 4-pole structure (capacityKva on the structure).
+  const dtrCounts: Record<DtrCapacity, number> = {
+    16: 0,
+    25: 0,
+    63: 0,
+    100: 0,
+    160: 0,
+    250: 0,
+  };
+  nodes.forEach((node) => {
+    if (node.status !== 'proposed') return;
+    const capacity = getDtrCapacity(node);
+    if (capacity) dtrCounts[capacity] += 1;
+  });
 
-  const dtrConversion = nodes.filter((n) => n.type === 'dtr_conversion').length;
+  DTR_CAPACITIES.forEach((capacity) => {
+    const overrideKey = `boq-dtr-${capacity}`;
+    const count = dtrCounts[capacity];
+    if (count > 0 || customOverrides?.[overrideKey]) {
+      items.push({
+        id: overrideKey,
+        itemNumber: itemNum++,
+        description:
+          capacity === 25
+            ? 'Propose of 25 KVA DTR on 9M PCC Pole'
+            : `Propose of ${capacity} KVA DTR`,
+        quantity: customOverrides?.[overrideKey] ?? `${count}`,
+        unit: 'Nos',
+        isAutoCalculated: true,
+        category: 'transformer',
+      });
+    }
+  });
+
+  // 5. DTR Capacity Conversion (63 -> 100 kVA)
+  const dtrConversion = nodes.filter(
+    (n) => n.status === 'proposed' && n.type === 'dtr_conversion'
+  ).length;
   if (dtrConversion > 0 || customOverrides?.['boq-dtr-conv']) {
     items.push({
       id: 'boq-dtr-conv',
@@ -203,6 +302,42 @@ export function calculateBoq(
       unit: 'KM',
       isAutoCalculated: true,
       category: 'conductor',
+    });
+  }
+
+  const serviceEdges = edges.filter((edge) => edge.type === 'service_cable' && edge.status === 'proposed');
+  if (serviceEdges.length > 0) {
+    const groupedMeters: Record<string, { desc: string; meters: number }> = {};
+    for (const edge of serviceEdges) {
+      const spec = normalizeServiceCableSpec(edge.serviceCableSpec);
+      const specKey = `${spec.phase}_${spec.core}_${spec.sizeSqmm}_${spec.material}_${spec.armour}`;
+      const fullDesc = `Providing & Laying ${formatServiceCableFull(spec)}`;
+      if (!groupedMeters[specKey]) {
+        groupedMeters[specKey] = { desc: fullDesc, meters: 0 };
+      }
+      groupedMeters[specKey].meters += edge.spanMeters || 0;
+    }
+
+    for (const [key, val] of Object.entries(groupedMeters)) {
+      items.push({
+        id: `boq-service-cable-${key}`,
+        itemNumber: itemNum++,
+        description: val.desc,
+        quantity: customOverrides?.[`boq-service-cable-${key}`] ?? `${val.meters}`,
+        unit: 'Mtr',
+        isAutoCalculated: true,
+        category: 'connection',
+      });
+    }
+  } else if (customOverrides?.['boq-service-cable']) {
+    items.push({
+      id: 'boq-service-cable',
+      itemNumber: itemNum++,
+      description: 'Providing Service Cable Connection to Consumer House',
+      quantity: customOverrides['boq-service-cable'],
+      unit: 'Mtr',
+      isAutoCalculated: true,
+      category: 'connection',
     });
   }
 
@@ -380,27 +515,25 @@ export function generateIndexEntries(
     });
   }
 
-  if (nodes.some((n) => n.status === 'proposed' && (n.type === 'pole_8m' || n.properties.height === '8M'))) {
+  const proposedPoleHeights = new Set<PoleHeight>();
+  nodes.forEach((n) => {
+    if (n.status !== 'proposed') return;
+    const height = getPoleHeight(n);
+    if (height) proposedPoleHeights.add(height);
+  });
+
+  POLE_HEIGHTS.forEach((height) => {
+    if (!proposedPoleHeights.has(height)) return;
     entries.push({
-      id: 'idx-pcc-8m',
+      id: `idx-pcc-${height.toLowerCase()}`,
       number: num++,
-      description: 'Erection of 8 Mtr Long PCC Pole',
-      symbolKey: 'pole_8m',
+      description: POLE_DESCRIPTIONS[height],
+      symbolKey: `pole_${height.toLowerCase()}`,
       status: 'proposed',
     });
-  }
+  });
 
-  if (nodes.some((n) => n.status === 'proposed' && (n.type === 'pole_9m' || n.properties.height === '9M'))) {
-    entries.push({
-      id: 'idx-pcc-9m',
-      number: num++,
-      description: 'Erection of 9M PCC Single Pole',
-      symbolKey: 'pole_9m',
-      status: 'proposed',
-    });
-  }
-
-  if (nodes.some((n) => n.type === 'dp_structure')) {
+  if (nodes.some((n) => n.status === 'proposed' && n.type === 'dp_structure')) {
     entries.push({
       id: 'idx-dp',
       number: num++,
@@ -410,11 +543,26 @@ export function generateIndexEntries(
     });
   }
 
-  if (nodes.some((n) => n.type === 'dtr_25kva' || n.type === 'dtr_conversion')) {
+  if (nodes.some((n) => n.status === 'proposed' && n.type === 'four_pole')) {
+    entries.push({
+      id: 'idx-4pole',
+      number: num++,
+      description: 'Proposed 4-Pole Substation Structure',
+      symbolKey: 'four_pole',
+      status: 'proposed',
+    });
+  }
+
+  const hasProposedDtr = nodes.some((n) => n.status === 'proposed' && getDtrCapacity(n) !== null);
+  const hasProposedConversion = nodes.some(
+    (n) => n.status === 'proposed' && n.type === 'dtr_conversion'
+  );
+
+  if (hasProposedDtr || hasProposedConversion) {
     entries.push({
       id: 'idx-dtr',
       number: num++,
-      description: 'Proposed 25 KVA DTR / Conversion',
+      description: 'Proposed DTR / Capacity Conversion',
       symbolKey: 'dtr',
       status: 'proposed',
     });
@@ -466,6 +614,33 @@ export function generateIndexEntries(
       number: num++,
       description: 'Drawal of LT AB Cable',
       symbolKey: 'lt_ab_cable',
+      status: 'proposed',
+    });
+  }
+
+  const has1PhService = edges.some(
+    (e) => e.type === 'service_cable' && (!e.serviceCableSpec || e.serviceCableSpec.phase === '1_phase')
+  );
+  const has3PhService = edges.some(
+    (e) => e.type === 'service_cable' && (e.serviceCableSpec?.phase === '3_phase' || e.serviceCableSpec?.core === '4_core')
+  );
+
+  if (has1PhService) {
+    entries.push({
+      id: 'idx-service-cable-1ph',
+      number: num++,
+      description: '1-Phase 2-Core Service Cable Connection',
+      symbolKey: 'service_cable',
+      status: 'proposed',
+    });
+  }
+
+  if (has3PhService) {
+    entries.push({
+      id: 'idx-service-cable-3ph',
+      number: num++,
+      description: '3-Phase 4-Core Service Cable Connection',
+      symbolKey: 'service_cable_3ph',
       status: 'proposed',
     });
   }

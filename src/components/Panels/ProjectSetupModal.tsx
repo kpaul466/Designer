@@ -3,7 +3,7 @@
  * Comprehensive setup for Application No., PO No., Drawing Name, Area/Location, Agency Name, CCC Name, etc.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ProjectMetadata } from '../../types/electrical';
 import {
   Building2,
@@ -11,14 +11,17 @@ import {
   FileSpreadsheet,
   FileText,
   MapPin,
+  PlusCircle,
   Settings2,
   UserCheck,
   Users,
+  Wrench,
   X,
   Zap,
 } from 'lucide-react';
 import { LocationSearchBar } from '../Toolbar/LocationSearchBar';
 import { ALL_PAGE_SIZES } from '../../constants/pageSizes';
+import { parseCoordinateText } from '../../utils/geoReference';
 
 interface ProjectSetupModalProps {
   isOpen: boolean;
@@ -36,6 +39,13 @@ export const ProjectSetupModal: React.FC<ProjectSetupModalProps> = ({
   const [formData, setFormData] = useState<ProjectMetadata>({ ...metadata });
   const [activeTab, setActiveTab] = useState<'project' | 'admin' | 'signoff'>('project');
 
+  useEffect(() => {
+    if (isOpen) {
+      setFormData({ ...metadata });
+      setActiveTab('project');
+    }
+  }, [isOpen, metadata]);
+
   if (!isOpen) return null;
 
   const handleChange = (field: keyof ProjectMetadata, val: string) => {
@@ -44,80 +54,134 @@ export const ProjectSetupModal: React.FC<ProjectSetupModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave(formData);
+    onSave({
+      ...formData,
+      title: formData.title?.trim() || 'New Drawing',
+    });
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-      <div className="bg-slate-900 border border-slate-700 w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+    <div className="fixed inset-0 z-50 flex items-stretch justify-center overflow-hidden bg-slate-950/85 backdrop-blur-md p-0 sm:items-center sm:p-4">
+      <div className="flex h-dvh w-full max-w-none flex-col overflow-hidden border-0 border-slate-700 bg-slate-900 shadow-2xl sm:h-auto sm:max-h-[92dvh] sm:max-w-3xl sm:rounded-2xl sm:border">
         {/* Header */}
-        <div className="p-4 px-6 border-b border-slate-800 flex items-center justify-between bg-slate-900/90 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-red-600 flex items-center justify-center text-white shadow-md shadow-red-950">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-800 bg-slate-900/90 p-3 px-4 sm:p-4 sm:px-6">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-red-600 text-white shadow-md shadow-red-950">
               <Settings2 className="w-5 h-5" />
             </div>
-            <div>
-              <h2 className="text-base font-bold text-white flex items-center gap-2">
+            <div className="min-w-0">
+              <h2 className="flex items-center gap-2 text-sm font-bold text-white sm:text-base">
                 <span>Project Setup & Engineering Configuration</span>
               </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
+              <p className="mt-0.5 hidden text-xs text-slate-400 sm:block">
                 Configure Application No., PO No., Drawing Name, Area/Location, Agency Name, and CCC Name for drawing sheets.
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            className="shrink-0 rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-800 hover:text-white"
+            aria-label="Close project setup"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Tab Navigation */}
-        <div className="px-6 pt-3 pb-1 border-b border-slate-800 flex items-center gap-2 bg-slate-900/60 shrink-0">
+        <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-slate-800 bg-slate-900/60 px-3 pb-1 pt-2 sm:gap-2 sm:px-6 sm:pt-3">
           <button
             type="button"
             onClick={() => setActiveTab('project')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+            className={`flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition-colors sm:px-3.5 sm:text-xs ${
               activeTab === 'project'
                 ? 'bg-red-600 text-white shadow'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
             }`}
           >
             <FileText className="w-3.5 h-3.5" />
-            <span>Project & Drawing</span>
+            <span className="sm:hidden">Project</span>
+            <span className="hidden sm:inline">Project & Drawing</span>
           </button>
           <button
             type="button"
             onClick={() => setActiveTab('admin')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+            className={`flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition-colors sm:px-3.5 sm:text-xs ${
               activeTab === 'admin'
                 ? 'bg-red-600 text-white shadow'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
             }`}
           >
             <Building2 className="w-3.5 h-3.5" />
-            <span>Agency, CCC & Location</span>
+            <span className="sm:hidden">Agency</span>
+            <span className="hidden sm:inline">Agency, CCC & Location</span>
           </button>
           <button
             type="button"
             onClick={() => setActiveTab('signoff')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+            className={`flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition-colors sm:px-3.5 sm:text-xs ${
               activeTab === 'signoff'
                 ? 'bg-red-600 text-white shadow'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
             }`}
           >
             <UserCheck className="w-3.5 h-3.5" />
-            <span>Applicant & Approvals</span>
+            <span className="sm:hidden">Sign-off</span>
+            <span className="hidden sm:inline">Applicant & Approvals</span>
           </button>
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-4 text-xs">
+        <form onSubmit={handleSubmit} className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 text-xs sm:p-6">
           {/* TAB 1: Project & Drawing Identification */}
           {activeTab === 'project' && (
             <div className="space-y-4 animate-in fade-in duration-150">
+              {/* Work Classification: New Work vs Maintenance Work */}
+              <div className="p-3.5 rounded-xl border border-slate-700/80 bg-slate-950/60 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                    <Zap className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Work Classification / Scheme Type</span>
+                  </label>
+                  <span className="text-[10px] text-slate-400 font-medium">
+                    {formData.workType === 'maintenance_work' ? 'Maintenance Scheme' : 'New Installation Scheme'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleChange('workType', 'new_work')}
+                    className={`flex items-center justify-center gap-2.5 p-2.5 rounded-xl border text-xs font-bold transition-all ${
+                      (formData.workType ?? 'new_work') === 'new_work'
+                        ? 'bg-emerald-600/20 border-emerald-500 text-emerald-300 shadow-sm ring-1 ring-emerald-500'
+                        : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                    }`}
+                  >
+                    <PlusCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <div className="text-left">
+                      <div className="leading-tight">New Work</div>
+                      <div className="text-[9.5px] font-normal text-slate-400">New line / extension / electrification</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleChange('workType', 'maintenance_work')}
+                    className={`flex items-center justify-center gap-2.5 p-2.5 rounded-xl border text-xs font-bold transition-all ${
+                      formData.workType === 'maintenance_work'
+                        ? 'bg-amber-600/20 border-amber-500 text-amber-300 shadow-sm ring-1 ring-amber-500'
+                        : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                    }`}
+                  >
+                    <Wrench className="w-4 h-4 text-amber-400 shrink-0" />
+                    <div className="text-left">
+                      <div className="leading-tight">Maintenance Work</div>
+                      <div className="text-[9.5px] font-normal text-slate-400">Repair / renovation / reconductoring</div>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="text-[11px] font-semibold text-slate-300 block mb-1">
@@ -125,6 +189,7 @@ export const ProjectSetupModal: React.FC<ProjectSetupModalProps> = ({
                   </label>
                   <input
                     type="text"
+                    autoFocus
                     value={formData.title}
                     onChange={(e) => handleChange('title', e.target.value)}
                     placeholder="e.g. Erection & Phase Conversion Scheme with River Crossing"
@@ -311,6 +376,7 @@ export const ProjectSetupModal: React.FC<ProjectSetupModalProps> = ({
                         handleChange('divisionName', `${loc.district} Division`);
                       }
                     }}
+                    origin={parseCoordinateText(formData.coordinates) ?? undefined}
                   />
                   <input
                     type="text"
@@ -444,17 +510,17 @@ export const ProjectSetupModal: React.FC<ProjectSetupModalProps> = ({
           </div>
 
           {/* Modal Action Buttons */}
-          <div className="pt-3 border-t border-slate-800 flex items-center justify-end gap-2 shrink-0">
+          <div className="flex shrink-0 flex-col-reverse items-stretch gap-2 border-t border-slate-800 pt-3 sm:flex-row sm:items-center sm:justify-end">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium transition-colors"
+              className="w-full rounded-lg bg-slate-800 px-4 py-2 font-medium text-slate-300 transition-colors hover:bg-slate-700 sm:w-auto"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-5 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold flex items-center gap-2 shadow-lg shadow-red-950 transition-colors"
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 px-5 py-2 font-bold text-white shadow-lg shadow-red-950 transition-colors hover:bg-red-500 sm:w-auto"
             >
               <Check className="w-4 h-4" />
               <span>Apply Project Setup</span>

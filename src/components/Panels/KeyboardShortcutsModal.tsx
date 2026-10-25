@@ -63,51 +63,51 @@ export const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+      className="fixed inset-0 z-50 flex items-stretch justify-center overflow-hidden bg-slate-950/85 p-0 backdrop-blur-md sm:items-center sm:overflow-y-auto sm:p-4"
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="bg-slate-900 border border-slate-700 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="flex h-dvh w-full max-w-none flex-col overflow-hidden border-0 border-slate-700 bg-slate-900 shadow-2xl sm:h-auto sm:max-h-[90dvh] sm:max-w-2xl sm:rounded-2xl sm:border">
         {/* Header */}
-        <div className="p-4 px-6 border-b border-slate-800 flex items-center justify-between bg-slate-900/90 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-red-600 flex items-center justify-center text-white shadow">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-800 bg-slate-900/90 p-3 px-4 sm:p-4 sm:px-6">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-red-600 text-white shadow">
               <Keyboard className="w-4 h-4" />
             </div>
-            <div>
-              <h2 className="text-sm font-bold text-white flex items-center gap-2">
+            <div className="min-w-0">
+              <h2 className="flex items-center gap-2 text-sm font-bold text-white">
                 <span>CAD Keyboard Shortcuts & Functions</span>
               </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
+              <p className="mt-0.5 hidden text-xs text-slate-400 sm:block">
                 Speed up engineering drafting with full keyboard controls.
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-white">
+          <button onClick={onClose} className="shrink-0 rounded-lg p-1.5 text-slate-400 hover:text-white" aria-label="Close keyboard shortcuts">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Content */}
-        <div className="p-6 overflow-y-auto space-y-6 text-xs">
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4 text-xs sm:space-y-6 sm:p-6">
           {sections.map((sec) => (
             <div key={sec.title} className="space-y-2">
               <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
                 {sec.title}
               </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {sec.shortcuts.map((sc, idx) => (
                   <div
                     key={idx}
-                    className="flex items-center justify-between p-2 rounded-lg bg-slate-800/60 border border-slate-800 hover:border-slate-700 transition-colors"
+                    className="flex items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-800/60 p-2 transition-colors hover:border-slate-700"
                   >
-                    <span className="text-slate-300 font-medium">{sc.action}</span>
-                    <div className="flex items-center gap-1 shrink-0 ml-2">
+                    <span className="min-w-0 text-slate-300 font-medium">{sc.action}</span>
+                    <div className="ml-2 flex shrink-0 items-center gap-1">
                       {sc.keys.map((k, kIdx) => (
                         <kbd
                           key={kIdx}
-                          className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-200 font-mono text-[10px] shadow-sm font-semibold"
+                          className="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-slate-200 shadow-sm"
                         >
                           {k}
                         </kbd>
@@ -121,11 +121,11 @@ export const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="p-4 px-6 border-t border-slate-800 bg-slate-900/60 flex items-center justify-between text-xs text-slate-400">
+        <div className="flex shrink-0 flex-col gap-2 border-t border-slate-800 bg-slate-900/60 p-3 px-4 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between sm:p-4 sm:px-6">
           <span>Press <kbd className="px-1 py-0.5 bg-slate-800 rounded font-mono text-white text-[10px]">Esc</kbd> or <kbd className="px-1 py-0.5 bg-slate-800 rounded font-mono text-white text-[10px]">?</kbd> to toggle</span>
           <button
             onClick={onClose}
-            className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-medium transition-colors"
+            className="w-full rounded-lg bg-slate-800 px-4 py-1.5 font-medium text-white transition-colors hover:bg-slate-700 sm:w-auto"
           >
             Got it
           </button>

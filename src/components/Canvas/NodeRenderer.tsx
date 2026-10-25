@@ -14,6 +14,16 @@
 import React from 'react';
 import { ElectricalNode } from '../../types/electrical';
 
+/** Resolve the displayed DTR rating: explicit capacity attribute wins over the tool type. */
+function getNodeDtrRating(node: ElectricalNode): number | null {
+  const capacity = node.properties.capacityKva;
+  if (capacity) return capacity;
+  if (node.type === 'dtr_25kva') return 25;
+  if (node.type === 'dtr_63kva') return 63;
+  if (node.type === 'dtr_100kva') return 100;
+  return null;
+}
+
 interface NodeRendererProps {
   node: ElectricalNode;
   isSelected: boolean;
@@ -199,6 +209,11 @@ export const NodeRenderer: React.FC<NodeRendererProps> = ({
           {/* Transformer Plinth Center Graphic */}
           <rect x="-7" y="-7" width="14" height="14" fill="#fee2e2" stroke="#dc2626" strokeWidth="1.5" rx="1" />
           <text x="0" y="3" textAnchor="middle" fontSize="6.5" fontWeight="bold" fill="#dc2626">4P</text>
+          {node.properties.capacityKva && (
+            <text x="0" y="34" textAnchor="middle" fontSize="8" fontWeight="bold" fill="#dc2626">
+              {node.properties.capacityKva} kVA
+            </text>
+          )}
         </g>
       )}
 
@@ -275,7 +290,7 @@ export const NodeRenderer: React.FC<NodeRendererProps> = ({
               fontFamily="sans-serif"
               letterSpacing="0.3px"
             >
-              {node.type === 'dtr_25kva' ? '25 kVA' : node.type === 'dtr_63kva' ? '63 kVA' : '100 kVA'}
+              {getNodeDtrRating(node) ?? 25} kVA
             </text>
           </g>
         </g>

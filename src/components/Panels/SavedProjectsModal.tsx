@@ -136,42 +136,43 @@ export const SavedProjectsModal: React.FC<SavedProjectsModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+      className="fixed inset-0 z-50 flex items-stretch justify-center overflow-hidden bg-slate-950/85 p-0 backdrop-blur-md sm:items-center sm:overflow-y-auto sm:p-4"
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="bg-slate-900 border border-slate-700 w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="flex h-dvh w-full max-w-none flex-col overflow-hidden border-0 border-slate-700 bg-slate-900 shadow-2xl sm:h-auto sm:max-h-[90dvh] sm:max-w-4xl sm:rounded-2xl sm:border">
         {/* Header */}
-        <div className="p-4 px-6 border-b border-slate-800 flex items-center justify-between bg-slate-900/95 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-red-600 flex items-center justify-center text-white shadow-md shadow-red-950">
+        <div className="flex shrink-0 flex-col gap-2 border-b border-slate-800 bg-slate-900/95 p-3 px-4 sm:flex-row sm:items-center sm:justify-between sm:p-4 sm:px-6">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-red-600 text-white shadow-md shadow-red-950 sm:h-10 sm:w-10">
               <HardDrive className="w-5 h-5" />
             </div>
-            <div>
-              <h2 className="text-base font-bold text-white flex items-center gap-2">
+            <div className="min-w-0">
+              <h2 className="flex flex-wrap items-center gap-2 text-sm font-bold text-white sm:text-base">
                 <span>Local Drawings & Blueprints</span>
-                <span className="text-[10px] bg-emerald-950 text-emerald-300 font-mono font-bold px-2 py-0.5 rounded-full border border-emerald-800/60">
+                <span className="rounded-full border border-emerald-800/60 bg-emerald-950 px-2 py-0.5 font-mono text-[10px] font-bold text-emerald-300">
                   {catalog.length} Saved in LocalStorage
                 </span>
               </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
+              <p className="mt-0.5 hidden text-xs text-slate-400 sm:block">
                 All drawings are securely stored inside your browser's local storage. No cloud login required.
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center justify-end gap-2 self-end sm:self-auto">
             <button
               onClick={handleCreateNew}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold shadow-md transition-colors"
+              className="flex items-center gap-1.5 rounded-xl bg-red-600 px-3 py-1.5 text-xs font-bold text-white shadow-md transition-colors hover:bg-red-500"
             >
               <Plus className="w-4 h-4" />
               <span>New Drawing</span>
             </button>
             <button
               onClick={onClose}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+              className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-800 hover:text-white"
+              aria-label="Close saved drawings"
             >
               <X className="w-5 h-5" />
             </button>
@@ -179,7 +180,7 @@ export const SavedProjectsModal: React.FC<SavedProjectsModalProps> = ({
         </div>
 
         {/* Filter Bar & Actions */}
-        <div className="p-4 px-6 bg-slate-950/60 border-b border-slate-800 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shrink-0">
+        <div className="flex shrink-0 flex-col items-stretch justify-between gap-3 border-b border-slate-800 bg-slate-950/60 p-3 px-4 sm:flex-row sm:items-center sm:p-4 sm:px-6">
           <input
             type="text"
             value={filterQuery}
@@ -210,20 +211,20 @@ export const SavedProjectsModal: React.FC<SavedProjectsModalProps> = ({
 
         {/* Feedback Alerts */}
         {errorMsg && (
-          <div className="px-6 py-2 bg-red-950/80 border-b border-red-800 text-red-200 text-xs flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2 border-b border-red-800 bg-red-950/80 px-4 py-2 text-xs text-red-200 sm:px-6">
             <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
             <span>{errorMsg}</span>
           </div>
         )}
         {successMsg && (
-          <div className="px-6 py-2 bg-emerald-950/80 border-b border-emerald-800 text-emerald-200 text-xs flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2 border-b border-emerald-800 bg-emerald-950/80 px-4 py-2 text-xs text-emerald-200 sm:px-6">
             <Check className="w-4 h-4 text-emerald-400 shrink-0" />
             <span>{successMsg}</span>
           </div>
         )}
 
         {/* Drawings Grid */}
-        <div className="p-6 overflow-y-auto divide-y divide-slate-800 space-y-2">
+        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3 sm:p-6">
           {filtered.length === 0 ? (
             <div className="text-center py-12 text-slate-400">
               <FolderOpen className="w-10 h-10 text-slate-600 mx-auto mb-2" />
@@ -307,7 +308,7 @@ export const SavedProjectsModal: React.FC<SavedProjectsModalProps> = ({
                   </div>
 
                   {/* Actions */}
-                  <div className="flex items-center gap-1.5 shrink-0 self-end md:self-center">
+                  <div className="flex shrink-0 flex-wrap items-center gap-1.5 self-end md:self-center">
                     {!isActive ? (
                       <button
                         onClick={() => {
