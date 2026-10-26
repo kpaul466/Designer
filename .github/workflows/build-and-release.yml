@@ -85,6 +85,12 @@ jobs:
         with:
           node-version: 22
 
+      - name: Install Linux Build Dependencies (FUSE & Packaging)
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libfuse2 libopenjp2-7
+
       - name: Install dependencies
         run: npm install --legacy-peer-deps --no-audit --no-fund
 
@@ -97,6 +103,7 @@ jobs:
       - name: Compile Electron Desktop App (${{ matrix.platform }})
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: false
         run: npx electron-builder ${{ matrix.build_flag }} --publish never
 
       - name: Upload Desktop Artifacts
@@ -127,11 +134,15 @@ jobs:
         with:
           node-version: 22
 
-      - name: Set up Java 17
+      - name: Set up Java 21 (Required for Capacitor 7+)
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
+
+      - name: Accept Android SDK Licenses
+        run: |
+          yes | "$ANDROID_HOME"/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
       - name: Install dependencies
         run: npm install --legacy-peer-deps --no-audit --no-fund
@@ -149,13 +160,12 @@ jobs:
 
       - name: Build Android APK with Gradle
         run: |
-          if [ -d "android" ]; then
-            cd android
-            chmod +x gradlew
-            ./gradlew assembleDebug --no-daemon
-            mkdir -p ../release
-            cp app/build/outputs/apk/debug/*.apk ../release/PowerLine-Designer-2.4.0.apk || true
-          fi
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+          mkdir -p ../release
+          find app/build/outputs/apk/debug/ -name "*.apk" -exec cp {} ../release/PowerLine-Designer-2.4.0.apk \;
+          ls -lah ../release/
 
       - name: Upload Android APK Artifact
         uses: actions/upload-artifact@v4
@@ -168,7 +178,11 @@ jobs:
   publish-release:
     name: Publish Release & Distribute Binaries
     needs: [build-desktop, build-android]
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    if: |
+      always() &&
+      !cancelled() &&
+      (needs.build-desktop.result == 'success' || needs.build-android.result == 'success') &&
+      (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -201,7 +215,7 @@ jobs:
             ### 🚀 Cross-Platform Installers:
             - **Windows**: `PowerLine-Designer-Setup-2.4.0.exe` (NSIS Installer) & `PowerLine-Designer-2.4.0-portable.exe`
             - **Android Mobile**: `PowerLine-Designer-2.4.0.apk` (Phone & Tablet installer)
-            - **Linux**: `PowerLine-Designer-2.4.0.AppImage` & `.deb` (Debian/Ubuntu)
+            - **Linux**: `PowerLine-Designer-2.4.0.AppImage` & `PowerLine-Designer-2.4.0.deb` (Debian/Ubuntu)
             - **macOS**: `PowerLine-Designer-2.4.0.dmg` (Universal Apple Silicon & Intel)
             - **Live Web Version**: [Launch on GitHub Pages](https://kpaul466.github.io/Designer/)
 

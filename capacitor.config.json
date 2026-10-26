@@ -2,7 +2,6 @@
   "appId": "com.powerline.designer",
   "appName": "PowerLine Designer",
   "webDir": "dist",
-  "bundledWebRuntime": false,
   "server": {
     "androidScheme": "https",
     "cleartext": true

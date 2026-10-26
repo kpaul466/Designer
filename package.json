@@ -113,7 +113,7 @@
     },
     "linux": {
       "target": ["AppImage", "deb"],
-      "category": "Engineering",
+      "category": "Development",
       "icon": "public/powerline-icon.png",
       "artifactName": "PowerLine-Designer-${version}.${ext}"
     }
