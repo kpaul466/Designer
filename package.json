@@ -62,7 +62,7 @@
   },
   "build": {
     "appId": "com.powerline.designer",
-    "productName": "PowerLine Designer",
+    "productName": "PowerLine-Designer",
     "copyright": "Copyright © 2026 Kaushik Paul",
     "directories": {
       "output": "release"
@@ -78,7 +78,6 @@
         "name": "PowerLine Drawing",
         "description": "PowerLine Designer Project File",
         "role": "Editor",
-        "icon": "public/powerline-icon.png",
         "mimeType": "application/x-powerline-designer"
       }
     ],
@@ -101,24 +100,22 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "PowerLine Designer",
-      "fileAssociations": [
-        {
-          "ext": "pld",
-          "name": "PowerLine Drawing",
-          "description": "PowerLine Designer Project File"
-        }
-      ]
+      "artifactName": "PowerLine-Designer-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "PowerLine-Designer-${version}-portable.${ext}"
     },
     "mac": {
       "target": ["dmg", "zip"],
       "category": "public.app-category.productivity",
-      "icon": "public/powerline-icon.png"
+      "icon": "public/powerline-icon.png",
+      "artifactName": "PowerLine-Designer-${version}.${ext}"
     },
     "linux": {
       "target": ["AppImage", "deb"],
       "category": "Engineering",
       "icon": "public/powerline-icon.png",
-      "mimeTypes": ["application/x-powerline-designer"]
+      "artifactName": "PowerLine-Designer-${version}.${ext}"
     }
   }
 }
