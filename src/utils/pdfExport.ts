@@ -124,3 +124,5 @@ export function exportToJson(project: DrawingProject): void {
 function sanitizeFilename(name: string): string {
   return name.replace(/[/\\?%*:|"<>]/g, '_').trim() || 'drawing';
 }
+
+export { exportToPptx } from './pptxExport';

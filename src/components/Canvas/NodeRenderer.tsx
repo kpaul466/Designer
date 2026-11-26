@@ -473,6 +473,101 @@ export const NodeRenderer: React.FC<NodeRendererProps> = ({
         </g>
       )}
 
+      {/* ---------------- 16b. SUBSTATION TAP ---------------- */}
+      {node.type === 'substation_tap' && (
+        <g transform="translate(-18, -18)">
+          <rect x="0" y="6" width="36" height="26" fill="#f8fafc" stroke={primaryColor} strokeWidth="2" rx="3" />
+          <line x1="8" y1="6" x2="8" y2="0" stroke={primaryColor} strokeWidth="2" />
+          <line x1="18" y1="6" x2="18" y2="0" stroke={primaryColor} strokeWidth="2" />
+          <line x1="28" y1="6" x2="28" y2="0" stroke={primaryColor} strokeWidth="2" />
+          <path d="M 14 18 L 20 11 L 18 18 L 23 18 L 16 26 L 18 20 Z" fill="#ef4444" />
+          <text x="18" y="28" textAnchor="middle" fontSize="6.5" fontWeight="bold" fill={primaryColor}>
+            SUBSTATION
+          </text>
+        </g>
+      )}
+
+      {/* ---------------- 16c. BROKEN PCC POLE (GREEN) ---------------- */}
+      {node.type === 'broken_pole' && (
+        <g>
+          {/* Green outer broken/damaged survey circle */}
+          <circle
+            cx="0"
+            cy="0"
+            r="12"
+            fill="#f0fdf4"
+            stroke="#16a34a"
+            strokeWidth="2.2"
+            strokeDasharray="4 2"
+          />
+          {/* Inner core */}
+          <circle cx="0" cy="0" r="5" fill="#dcfce7" stroke="#16a34a" strokeWidth="1.5" />
+          {/* Broken crack zigzag across pole */}
+          <path
+            d="M -8 -6 L -2 -1 L -5 3 L 2 1 L -1 6 L 8 9"
+            fill="none"
+            stroke="#15803d"
+            strokeWidth="2"
+            strokeLinecap="round"
+          />
+          {/* Cross-arm */}
+          <line x1="-13" y1="0" x2="-6" y2="0" stroke="#16a34a" strokeWidth="1.5" />
+          <line x1="6" y1="0" x2="13" y2="0" stroke="#16a34a" strokeWidth="1.5" />
+          {/* Green label badge */}
+          <text
+            x="0"
+            y="23"
+            textAnchor="middle"
+            fontSize="7.5"
+            fontWeight="bold"
+            fill="#15803d"
+          >
+            {`BROKEN ${node.properties.height || '8M'}`}
+          </text>
+        </g>
+      )}
+
+      {/* ---------------- 16d. BOX BRACKET [o] ---------------- */}
+      {node.type === 'box_bracket' && (
+        <g>
+          <rect
+            x="-10"
+            y="-10"
+            width="20"
+            height="20"
+            rx="2"
+            fill={fillColor}
+            stroke={primaryColor}
+            strokeWidth="2.2"
+          />
+          {/* Center circle and dot representing [o] */}
+          <circle
+            cx="0"
+            cy="0"
+            r="4.5"
+            fill="#ffffff"
+            stroke={primaryColor}
+            strokeWidth="1.8"
+          />
+          <circle
+            cx="0"
+            cy="0"
+            r="1.8"
+            fill={primaryColor}
+          />
+          <text
+            x="0"
+            y="20"
+            textAnchor="middle"
+            fontSize="7"
+            fontWeight="bold"
+            fill={primaryColor}
+          >
+            BOX BRACKET
+          </text>
+        </g>
+      )}
+
       {/* ---------------- 17. DYNAMIC CUSTOM TOOL SYMBOL ---------------- */}
       {node.type === 'custom_symbol' && (
         <g>

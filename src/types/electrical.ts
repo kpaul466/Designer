@@ -25,6 +25,8 @@ export type NodeType =
   | 'landmark_religious'
   | 'landmark_school'
   | 'substation_tap'
+  | 'box_bracket'
+  | 'broken_pole'
   | 'custom_symbol';
 
 export interface GpsPoint {
@@ -95,6 +97,7 @@ export type ConductorType =
   | 'acsr_4wire'
   | 'acsr_2wire'
   | 'lt_ab_cable'
+  | 'theft_acsr'
   | 'service_cable'
   | 'service_cable_3ph'
   | 'ht_ug_cable'
@@ -339,10 +342,14 @@ export type ActiveTool =
   | 'commercial_facility'
   | 'landmark_religious'
   | 'landmark_school'
+  | 'substation_tap'
+  | 'box_bracket'
+  | 'broken_pole'
   | 'acsr_2wire'
   | 'acsr_3wire'
   | 'acsr_4wire'
   | 'lt_ab_cable'
+  | 'theft_acsr'
   | 'service_cable'
   | 'service_cable_3ph'
   | 'ht_ug_cable'

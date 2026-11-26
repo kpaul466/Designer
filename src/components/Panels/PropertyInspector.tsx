@@ -271,6 +271,30 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
             </div>
           </div>
 
+          {/* Broken Pole Banner */}
+          {node.type === 'broken_pole' && (
+            <div className="rounded-lg border border-emerald-500/40 bg-emerald-950/20 p-2.5">
+              <span className="text-[11px] font-bold text-emerald-400 block mb-0.5">
+                Broken PCC Pole (Maintenance Survey)
+              </span>
+              <p className="text-[10px] text-emerald-200/80">
+                Marked in green on canvas. Select 8M or 9M height below for dismantling/replacement BOQ tally.
+              </p>
+            </div>
+          )}
+
+          {/* Box Bracket Banner */}
+          {node.type === 'box_bracket' && (
+            <div className="rounded-lg border border-sky-500/40 bg-sky-950/20 p-2.5">
+              <span className="text-[11px] font-bold text-sky-400 block mb-0.5">
+                Box Bracket [o]
+              </span>
+              <p className="text-[10px] text-sky-200/80">
+                Pole mounting box bracket for LT distribution line & cable fittings.
+              </p>
+            </div>
+          )}
+
           {/* GPS Position */}
           <div className="rounded-lg border border-slate-800 bg-slate-950/55 p-2.5">
             <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-sky-400">
@@ -473,15 +497,61 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
               className="w-full bg-slate-800 border border-slate-700 rounded-md px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-red-500"
             >
               <option value="acsr_4wire">ACSR 50 sq.mm 3-Phase 4-Wire</option>
-              <option value="acsr_3wire">ACSR 50 sq.mm 3-Wire</option>
-              <option value="acsr_2wire">ACSR 50 sq.mm 2-Wire</option>
-              <option value="lt_ab_cable">LT AB Cable</option>
+              <option value="acsr_3wire">ACSR 50 sq.mm 2-Phase 3-Wire</option>
+              <option value="acsr_2wire">ACSR 50 sq.mm 1-Phase 2-Wire</option>
+              <option value="lt_ab_cable">LT AB Cable (Aerial Bunched)</option>
+              <option value="theft_acsr">Theft ACSR Conductor (Green)</option>
               <option value="service_cable">Service Cable to House</option>
               <option value="phase_conversion">Phase Conversion 1-Ph to 3-Ph</option>
               <option value="cradle_guard">Cradle Guard upto 50M</option>
               <option value="ht_oh_line">Existing HT-OH Line</option>
             </select>
           </div>
+
+          {/* LT AB Cable Specification (50 sq.mm / 70 sq.mm / 25 sq.mm) */}
+          {edge.type === 'lt_ab_cable' && (
+            <div className="rounded-xl border border-blue-500/40 bg-blue-950/20 p-3 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-blue-300">LT AB Cable Size</span>
+                <span className="rounded bg-blue-500/20 px-1.5 py-0.5 font-mono text-[9.5px] font-bold text-blue-200">
+                  {edge.wireGauge || '50 sq.mm'}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-1.5">
+                {[
+                  { id: '50 sq.mm', label: '50 sq.mm', spec: '3x50+1x35' },
+                  { id: '70 sq.mm', label: '70 sq.mm', spec: '3x70+1x50' },
+                  { id: '25 sq.mm', label: '25 sq.mm', spec: '3x25+1x25' },
+                ].map((sz) => (
+                  <button
+                    key={sz.id}
+                    type="button"
+                    onClick={() => handleUpdateEdge({ wireGauge: sz.id })}
+                    className={`py-1.5 px-1.5 rounded-lg text-xs font-bold border transition-colors ${
+                      (edge.wireGauge || '50 sq.mm') === sz.id
+                        ? 'bg-blue-600 border-blue-500 text-white'
+                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                    }`}
+                  >
+                    <div>{sz.label}</div>
+                    <div className="text-[8px] opacity-75 font-normal">{sz.spec}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Theft ACSR Line Notification */}
+          {edge.type === 'theft_acsr' && (
+            <div className="rounded-xl border border-emerald-500/40 bg-emerald-950/20 p-3 space-y-1.5">
+              <span className="text-xs font-bold text-emerald-300 block">
+                Theft ACSR Conductor (Green)
+              </span>
+              <p className="text-[10px] text-emerald-200/80 leading-relaxed">
+                Marks conductor theft span along route. Auto-calculated in the Bill of Quantities under theft line re-stringing.
+              </p>
+            </div>
+          )}
 
           {/* Service Cable Specification (Single Phase vs 3 Phase, Cores, sq.mm, Armour) */}
           {edge.type === 'service_cable' && (

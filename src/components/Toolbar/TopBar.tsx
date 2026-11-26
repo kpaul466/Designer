@@ -27,6 +27,7 @@ import {
   MousePointer2,
   PanelLeft,
   Plus,
+  Presentation,
   Printer,
   Redo2,
   Save,
@@ -53,6 +54,7 @@ import {
 } from '../../types/electrical';
 import { ALL_PAGE_SIZES, PAGE_SIZE_DEFINITIONS } from '../../constants/pageSizes';
 import { APP_VERSION } from '../../services/pldFileService';
+import { exportToPptx } from '../../utils/pptxExport';
 
 interface TopBarProps {
   project: DrawingProject;
@@ -385,7 +387,7 @@ export const TopBar: React.FC<TopBarProps> = ({
 
   useEffect(() => {
     if (!openMenu) return;
-    const handleClickOutside = (event: MouseEvent) => {
+    const handleClickOutside = (event: PointerEvent | MouseEvent) => {
       if (menuBarRef.current && !menuBarRef.current.contains(event.target as Node)) {
         setOpenMenu(null);
       }
@@ -393,23 +395,23 @@ export const TopBar: React.FC<TopBarProps> = ({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setOpenMenu(null);
     };
-    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('pointerdown', handleClickOutside);
     document.addEventListener('keydown', handleKeyDown);
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('pointerdown', handleClickOutside);
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [openMenu]);
 
   useEffect(() => {
     if (!showPageSizeMenu) return;
-    const handleClickOutside = (event: MouseEvent) => {
+    const handleClickOutside = (event: PointerEvent | MouseEvent) => {
       if (pageSizeMenuRef.current && !pageSizeMenuRef.current.contains(event.target as Node)) {
         setShowPageSizeMenu(false);
       }
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('pointerdown', handleClickOutside);
+    return () => document.removeEventListener('pointerdown', handleClickOutside);
   }, [showPageSizeMenu]);
 
   useEffect(() => {
@@ -516,7 +518,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   };
 
   const menuButton = (key: MenuKey, label: string, entries: MenuEntry[]) => (
-    <div key={key} role="none" className="relative">
+    <div key={key} role="none" className="relative shrink-0">
       <button
         type="button"
         role="menuitem"
@@ -524,10 +526,12 @@ export const TopBar: React.FC<TopBarProps> = ({
         aria-expanded={openMenu === key}
         onClick={() => setOpenMenu((current) => (current === key ? null : key))}
         onMouseEnter={() => {
-          if (openMenu) setOpenMenu(key);
+          if (openMenu && typeof window !== 'undefined' && window.matchMedia?.('(hover: hover)').matches) {
+            setOpenMenu(key);
+          }
         }}
-        className={`h-7 rounded px-2 text-[11.5px] font-medium transition-colors sm:px-2.5 ${
-          openMenu === key ? 'bg-sky-100 text-sky-900' : 'text-slate-700 hover:bg-slate-100'
+        className={`h-7 rounded px-1.5 sm:px-2.5 text-[11px] sm:text-[11.5px] font-medium transition-colors whitespace-nowrap ${
+          openMenu === key ? 'bg-sky-100 text-sky-900 font-semibold' : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
         }`}
       >
         {label}
@@ -535,13 +539,24 @@ export const TopBar: React.FC<TopBarProps> = ({
       {openMenu === key && (
         <div
           role="menu"
-          className="fixed left-2 right-2 top-10 z-50 max-h-[calc(100dvh-4rem)] overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 text-xs shadow-2xl animate-in fade-in slide-in-from-top-1 sm:absolute sm:left-0 sm:right-auto sm:top-full sm:mt-1 sm:w-64 sm:max-h-[70dvh]"
+          className={`absolute ${
+            key === 'help' || key === 'tools' ? 'right-0 sm:left-0 sm:right-auto' : 'left-0'
+          } top-full mt-1 z-50 w-60 sm:w-64 max-h-[75dvh] overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 text-xs shadow-2xl animate-in fade-in slide-in-from-top-1`}
         >
           {entries.map(renderMenuEntry)}
         </div>
       )}
     </div>
   );
+
+  const handleDirectPptxExport = async () => {
+    try {
+      await exportToPptx(project);
+    } catch (err) {
+      console.error('PPTX export error:', err);
+      onOpenExport();
+    }
+  };
 
   const fileMenu: MenuEntry[] = [
     { label: 'New Drawing', icon: <Plus className="h-3.5 w-3.5" />, onSelect: onCreateDrawing },
@@ -550,12 +565,14 @@ export const TopBar: React.FC<TopBarProps> = ({
     { separator: true },
     ...(onSavePld ? [{ label: 'Save as .PLD Drawing (Stateful)…', icon: <HardDrive className="h-3.5 w-3.5 text-red-600" />, onSelect: onSavePld }] : []),
     ...(onOpenPld ? [{ label: 'Open .PLD Drawing File…', icon: <FolderOpen className="h-3.5 w-3.5 text-sky-600" />, onSelect: onOpenPld }] : []),
+    { label: 'Save as PPTX (Editable PowerPoint)…', icon: <Presentation className="h-3.5 w-3.5 text-orange-600" />, onSelect: handleDirectPptxExport },
     { separator: true },
     { label: `My Drawings (${savedProjectsCount})`, icon: <HardDrive className="h-3.5 w-3.5" />, onSelect: onOpenSavedProjects },
     { label: 'Templates…', icon: <FileText className="h-3.5 w-3.5" />, onSelect: onOpenTemplates },
     { separator: true },
     { label: 'Print / PDF Setup…', icon: <Settings2 className="h-3.5 w-3.5" />, onSelect: onOpenOutputSettings },
     { label: 'Export A4 PDF…', icon: <Download className="h-3.5 w-3.5" />, onSelect: onOpenExport },
+    { label: 'Save as PPTX…', icon: <Presentation className="h-3.5 w-3.5 text-orange-600" />, onSelect: handleDirectPptxExport },
     { label: 'Print Preview…', icon: <Printer className="h-3.5 w-3.5" />, onSelect: onOpenExport },
   ];
 
@@ -602,6 +619,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   const toolsMenu: MenuEntry[] = [
     { label: 'Print / PDF Setup…', icon: <Settings2 className="h-3.5 w-3.5" />, onSelect: onOpenOutputSettings },
     { label: 'Export A4 PDF…', icon: <Download className="h-3.5 w-3.5" />, onSelect: onOpenExport },
+    { label: 'Save as PPTX (Editable)…', icon: <Presentation className="h-3.5 w-3.5 text-orange-600" />, onSelect: handleDirectPptxExport },
     { label: 'Print Preview…', icon: <Printer className="h-3.5 w-3.5" />, onSelect: onOpenExport },
     { separator: true },
     { label: 'Map Configuration…', icon: <Map className="h-3.5 w-3.5" />, onSelect: openMapPanel },
@@ -620,72 +638,82 @@ export const TopBar: React.FC<TopBarProps> = ({
 
   return (
     <header className="relative z-30 shrink-0 select-none border-b border-slate-200 bg-white text-slate-700 shadow-xs">
-      {/* Row 1: Software menu bar */}
-      <div className="flex min-h-9 flex-wrap items-center gap-x-1 gap-y-0.5 border-b border-slate-100 px-1.5 py-0.5 sm:px-2">
-        <button
-          type="button"
-          onClick={onOpenTemplates}
-          className="flex h-7 items-center gap-1.5 rounded px-1 transition-opacity hover:opacity-85"
-          title="Browse saved drawing templates"
-        >
-          <span className="flex h-5 w-5 items-center justify-center rounded bg-red-600 text-white shadow-xs">
-            <Zap className="h-3.5 w-3.5" />
-          </span>
-          <span className="hidden whitespace-nowrap text-[12px] font-bold tracking-tight text-slate-900 sm:inline">
-            PowerLine Designer
-          </span>
-          <span className="hidden whitespace-nowrap font-mono text-[9px] tracking-wide text-slate-400 lg:inline">
-            v2.8
-          </span>
-        </button>
+      {/* Row 1: Software menu bar - Visible & functioning across ALL display resolutions without clipping */}
+      <div className="flex h-9 w-full items-center justify-between border-b border-slate-100 px-1 sm:px-2 bg-white shrink-0">
+        {/* Left Section: Branding & Full Menubar */}
+        <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
+          <button
+            type="button"
+            onClick={onOpenTemplates}
+            className="flex h-7 items-center gap-1.5 rounded px-1 transition-opacity hover:opacity-85 shrink-0"
+            title="Browse saved drawing templates"
+          >
+            <span className="flex h-5 w-5 items-center justify-center rounded bg-red-600 text-white shadow-xs shrink-0">
+              <Zap className="h-3.5 w-3.5" />
+            </span>
+            <span className="hidden whitespace-nowrap text-[12px] font-bold tracking-tight text-slate-900 md:inline">
+              PowerLine Designer
+            </span>
+            <span className="hidden whitespace-nowrap font-mono text-[9px] tracking-wide text-slate-400 2xl:inline">
+              v2.8
+            </span>
+          </button>
 
-        {/* Quick access toolbar (duplicated in the ribbon on phones) */}
-        <div className="hidden items-center gap-0.5 sm:flex">
-          <button
-            type="button"
-            onClick={onSave}
-            disabled={isSaving}
-            className="rounded p-1 text-slate-600 transition-colors hover:bg-slate-100 hover:text-emerald-700 disabled:opacity-40"
-            title="Save to local storage (Ctrl+S)"
+          {/* Quick access toolbar (duplicated in the ribbon on phones) */}
+          <div className="hidden items-center gap-0.5 md:flex shrink-0">
+            <button
+              type="button"
+              onClick={onSave}
+              disabled={isSaving}
+              className="rounded p-1 text-slate-600 transition-colors hover:bg-slate-100 hover:text-emerald-700 disabled:opacity-40"
+              title="Save to local storage (Ctrl+S)"
+            >
+              <Save className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={onUndo}
+              disabled={!canUndo}
+              className="rounded p-1 text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 disabled:opacity-30"
+              title="Undo (Ctrl+Z)"
+            >
+              <Undo2 className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={onRedo}
+              disabled={!canRedo}
+              className="rounded p-1 text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 disabled:opacity-30"
+              title="Redo (Ctrl+Y)"
+            >
+              <Redo2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          <div className="mx-1 hidden h-4 w-px bg-slate-200 md:block shrink-0" />
+
+          {/* Core Software Menubar: File, Edit, View, Insert, Tools, Help */}
+          <nav
+            ref={menuBarRef}
+            role="menubar"
+            aria-label="Application menu"
+            className="flex items-center gap-0 sm:gap-0.5 shrink-0"
           >
-            <Save className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={onUndo}
-            disabled={!canUndo}
-            className="rounded p-1 text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 disabled:opacity-30"
-            title="Undo (Ctrl+Z)"
-          >
-            <Undo2 className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={onRedo}
-            disabled={!canRedo}
-            className="rounded p-1 text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 disabled:opacity-30"
-            title="Redo (Ctrl+Y)"
-          >
-            <Redo2 className="h-3.5 w-3.5" />
-          </button>
+            {menuButton('file', 'File', fileMenu)}
+            {menuButton('edit', 'Edit', editMenu)}
+            {menuButton('view', 'View', viewMenu)}
+            {menuButton('insert', 'Insert', insertMenu)}
+            {menuButton('tools', 'Tools', toolsMenu)}
+            {menuButton('help', 'Help', helpMenu)}
+          </nav>
         </div>
 
-        <div className="mx-1 hidden h-4 w-px bg-slate-200 sm:block" />
-
-        <nav ref={menuBarRef} role="menubar" aria-label="Application menu" className="flex items-center gap-0 sm:gap-0.5">
-          {menuButton('file', 'File', fileMenu)}
-          {menuButton('edit', 'Edit', editMenu)}
-          {menuButton('view', 'View', viewMenu)}
-          {menuButton('insert', 'Insert', insertMenu)}
-          {menuButton('tools', 'Tools', toolsMenu)}
-          {menuButton('help', 'Help', helpMenu)}
-        </nav>
-
-        <div className="ml-auto flex items-center gap-1 pl-1">
+        {/* Right Section: Title, Page Size, Status badges */}
+        <div className="ml-auto flex items-center gap-1 pl-1 shrink-0">
           <button
             type="button"
             onClick={onOpenProjectSetup}
-            className="hidden h-7 max-w-[260px] items-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-2 text-left transition-colors hover:bg-red-100 xl:flex"
+            className="hidden h-7 max-w-[220px] items-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-2 text-left transition-colors hover:bg-red-100 xl:flex shrink-0"
             title="Configure Application No., PO No., Drawing Name, Location, Agency & CCC"
           >
             <Building2 className="h-3.5 w-3.5 shrink-0 text-red-600" />
@@ -694,11 +722,11 @@ export const TopBar: React.FC<TopBarProps> = ({
             </span>
           </button>
 
-          <div ref={pageSizeMenuRef} className="relative">
+          <div ref={pageSizeMenuRef} className="relative shrink-0">
             <button
               type="button"
               onClick={() => setShowPageSizeMenu((visible) => !visible)}
-              className="flex h-7 items-center gap-1 rounded-md border border-sky-200 bg-sky-50 px-2 text-[11px] font-semibold text-sky-800 transition-colors hover:bg-sky-100"
+              className="flex h-7 items-center gap-1 rounded-md border border-sky-200 bg-sky-50 px-1.5 sm:px-2 text-[10.5px] sm:text-[11px] font-semibold text-sky-800 transition-colors hover:bg-sky-100 shrink-0"
               title={`${currentPageDef.label} · ${currentPageDef.dimensionsMm} — fixed 1:1 drawing sheet`}
             >
               <FileText className="h-3.5 w-3.5 text-sky-600" />
@@ -739,21 +767,12 @@ export const TopBar: React.FC<TopBarProps> = ({
             )}
           </div>
 
-          <button
-            type="button"
-            onClick={onOpenShortcuts}
-            className="hidden rounded p-1 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 sm:inline-flex"
-            title="Keyboard shortcuts (?)"
-          >
-            <Keyboard className="h-3.5 w-3.5" />
-          </button>
-
           {/* App Version & Downloads Badge */}
           {onOpenAppVersion && (
             <button
               type="button"
               onClick={onOpenAppVersion}
-              className="flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10.5px] font-bold text-red-700 transition-colors hover:bg-red-100 hover:border-red-300"
+              className="hidden sm:flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10.5px] font-bold text-red-700 transition-colors hover:bg-red-100 hover:border-red-300 shrink-0"
               title="PowerLine Designer App Version & Cross-Platform Installers"
             >
               <Package className="h-3 w-3 text-red-600" />
@@ -761,12 +780,22 @@ export const TopBar: React.FC<TopBarProps> = ({
             </button>
           )}
 
+          {/* Keyboard shortcuts */}
+          <button
+            type="button"
+            onClick={onOpenShortcuts}
+            className="hidden rounded p-1 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 lg:inline-flex shrink-0"
+            title="Keyboard shortcuts (?)"
+          >
+            <Keyboard className="h-3.5 w-3.5" />
+          </button>
+
           {/* About Developer Button */}
           {onOpenAboutDeveloper && (
             <button
               type="button"
               onClick={onOpenAboutDeveloper}
-              className="hidden rounded p-1 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 sm:inline-flex"
+              className="hidden rounded p-1 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 lg:inline-flex shrink-0"
               title="About the Developer"
             >
               <User className="h-3.5 w-3.5" />
@@ -796,6 +825,7 @@ export const TopBar: React.FC<TopBarProps> = ({
             {onOpenPld && (
               <RibbonButton icon={<FolderOpen className="h-3.5 w-3.5 text-sky-600" />} label=".PLD Open" title="Open .pld file from drive" onClick={onOpenPld} />
             )}
+            <RibbonButton icon={<Presentation className="h-3.5 w-3.5 text-orange-600" />} label="Save PPTX" title="Save as editable PowerPoint presentation (.pptx)" onClick={handleDirectPptxExport} />
             <RibbonButton icon={<HardDrive className="h-3.5 w-3.5" />} label={`Drawings ${savedProjectsCount}`} title="Manage saved drawings" onClick={onOpenSavedProjects} />
           </RibbonGroup>
         </div>
@@ -877,6 +907,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         <RibbonGroup label="Output">
           <RibbonButton icon={<Settings2 className="h-3.5 w-3.5" />} label="Print" title="Print setup: configure drawing canvas and PDF output" onClick={onOpenOutputSettings} />
           <RibbonButton icon={<Download className="h-3.5 w-3.5" />} label="Export PDF" title="Export A4 landscape PDF" onClick={onOpenExport} accent="danger" />
+          <RibbonButton icon={<Presentation className="h-3.5 w-3.5 text-orange-600" />} label="Save as PPTX" title="Save as editable PowerPoint presentation (.pptx)" onClick={handleDirectPptxExport} />
           {onOpenAppVersion && (
             <RibbonButton icon={<Package className="h-3.5 w-3.5 text-red-600" />} label="Installers" title="Download Windows, Android, Mac, Linux installers" onClick={onOpenAppVersion} />
           )}

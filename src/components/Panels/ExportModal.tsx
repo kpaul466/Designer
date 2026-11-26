@@ -10,7 +10,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { DrawingProject, MapFeatureSelection } from '../../types/electrical';
 import { calculateBoq, generateIndexEntries } from '../../utils/boqCalculator';
 import { exportToA4Pdf, exportToJson, exportToPng, exportToSvg } from '../../utils/pdfExport';
-import { Check, Download, FileCode, FileText, Image, Map, Printer, Settings2, X, Zap } from 'lucide-react';
+import { exportToPptx } from '../../utils/pptxExport';
+import { Check, Download, FileCode, FileText, Image, Map, Presentation, Printer, Settings2, X, Zap } from 'lucide-react';
 import { ConductorRenderer } from '../Canvas/ConductorRenderer';
 import { CrossingRenderer } from '../Canvas/CrossingRenderer';
 import { NodeRenderer } from '../Canvas/NodeRenderer';
@@ -92,6 +93,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   const [drawingViewport, setDrawingViewport] = useState({ width: 0, height: 0 });
   const [previewScale, setPreviewScale] = useState(0.5);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [isExportingPptx, setIsExportingPptx] = useState(false);
   const [exportStatus, setExportStatus] = useState<string>('');
   const [downloadSuccess, setDownloadSuccess] = useState(false);
   const [showPdfSettings, setShowPdfSettings] = useState(false);
@@ -340,6 +342,22 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     }
   };
 
+  const handleDownloadPptx = async () => {
+    try {
+      setIsExportingPptx(true);
+      setExportStatus('Generating PowerPoint vector shapes…');
+      await exportToPptx(project, (status) => setExportStatus(status));
+      setDownloadSuccess(true);
+      setTimeout(() => setDownloadSuccess(false), 3000);
+    } catch (err) {
+      console.error('PPTX export error:', err);
+      alert('Failed to generate PowerPoint presentation. Please check console for details.');
+    } finally {
+      setIsExportingPptx(false);
+      setExportStatus('');
+    }
+  };
+
   const handlePrint = () => {
     window.print();
   };
@@ -408,11 +426,21 @@ export const ExportModal: React.FC<ExportModalProps> = ({
 
             <button
               onClick={handleDownloadPdf}
-              disabled={isExportingPdf}
+              disabled={isExportingPdf || isExportingPptx}
               className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-sm transition-colors disabled:opacity-50"
             >
               <Download className="w-3.5 h-3.5" />
               <span>{isExportingPdf ? exportStatus || 'Exporting...' : 'Download A4 PDF'}</span>
+            </button>
+
+            <button
+              onClick={handleDownloadPptx}
+              disabled={isExportingPdf || isExportingPptx}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold shadow-sm transition-colors disabled:opacity-50"
+              title="Save as fully editable vector PowerPoint presentation (.pptx) with individual shapes, lines, text & BOQ"
+            >
+              <Presentation className="w-3.5 h-3.5" />
+              <span>{isExportingPptx ? exportStatus || 'Saving PPTX...' : 'Save as PPTX (Editable)'}</span>
             </button>
 
             <button
@@ -1008,6 +1036,22 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                                   )}
                                   {entry.symbolKey === 'acsr_3wire' && (
                                     <span className="text-red-600 font-mono text-[9px] font-bold">--|||--</span>
+                                  )}
+                                  {entry.symbolKey === 'acsr_2wire' && (
+                                    <span className="text-red-600 font-mono text-[9px] font-bold">--||--</span>
+                                  )}
+                                  {entry.symbolKey === 'theft_acsr' && (
+                                    <span className="text-emerald-600 font-mono text-[8px] font-bold">--THEFT--</span>
+                                  )}
+                                  {entry.symbolKey === 'broken_pole' && (
+                                    <div className="w-3.5 h-3.5 rounded-full border border-emerald-600 bg-emerald-100 flex items-center justify-center text-[7px] text-emerald-800 font-bold mx-auto">
+                                      ✕
+                                    </div>
+                                  )}
+                                  {entry.symbolKey === 'box_bracket' && (
+                                    <div className="w-3.5 h-3.5 border border-slate-900 flex items-center justify-center mx-auto">
+                                      <div className="w-1.5 h-1.5 rounded-full bg-slate-900" />
+                                    </div>
                                   )}
                                   {entry.symbolKey === 'lt_ab_cable' && (
                                     <span className="text-blue-600 font-mono text-[9px] font-bold">-- - --</span>

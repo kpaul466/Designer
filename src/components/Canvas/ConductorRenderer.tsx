@@ -24,12 +24,15 @@ export const ConductorRenderer: React.FC<ConductorRendererProps> = ({
   onSelect,
 }) => {
   const isProposed = edge.status === 'proposed';
+  const isTheft = edge.type === 'theft_acsr';
   const is3PhaseService =
     edge.type === 'service_cable' &&
     (edge.serviceCableSpec?.phase === '3_phase' || edge.serviceCableSpec?.core === '4_core');
 
   const color =
-    edge.type === 'service_cable'
+    isTheft
+      ? '#16a34a'
+      : edge.type === 'service_cable'
       ? is3PhaseService
         ? '#ea580c'
         : '#7c3aed'
@@ -39,8 +42,9 @@ export const ConductorRenderer: React.FC<ConductorRendererProps> = ({
       ? '#dc2626'
       : '#1e293b';
 
-  const strokeWidth = edge.type === 'ht_oh_line' || edge.type === 'service_cable' ? 2.8 : 2.2;
-  const isDashed = isProposed || edge.type === 'lt_ab_cable' || edge.type === 'service_cable';
+  const strokeWidth =
+    edge.type === 'ht_oh_line' || edge.type === 'service_cable' || isTheft ? 2.8 : 2.2;
+  const isDashed = isProposed || edge.type === 'lt_ab_cable' || edge.type === 'service_cable' || isTheft;
 
   const mid = midpoint(fromNode, toNode);
   const angle = angleBetween(fromNode, toNode);
@@ -153,6 +157,23 @@ export const ConductorRenderer: React.FC<ConductorRendererProps> = ({
         </g>
       )}
 
+      {/* Theft ACSR: Green warning cross ticks */}
+      {edge.type === 'theft_acsr' && (
+        <g transform={`translate(${mid.x}, ${mid.y}) rotate(${angleDeg})`}>
+          {[-6, 0, 6].map((offset, i) => (
+            <line
+              key={i}
+              x1={offset}
+              y1="-6"
+              x2={offset}
+              y2="6"
+              stroke="#16a34a"
+              strokeWidth="2.2"
+            />
+          ))}
+        </g>
+      )}
+
       {/* Service Cable: Cross ticks for 1-Phase (2 ticks) or 3-Phase (4 ticks) */}
       {edge.type === 'service_cable' && (
         <g transform={`translate(${mid.x}, ${mid.y}) rotate(${angleDeg})`}>
@@ -182,12 +203,14 @@ export const ConductorRenderer: React.FC<ConductorRendererProps> = ({
       {/* Span Dimension Label (e.g. 45 M, 40 M, 35 M) */}
       <g transform={`translate(${mid.x + perpX}, ${mid.y + perpY})`}>
         <rect
-          x="-16"
+          x={-(spanText.length * 3.5 + (isTheft ? 20 : 6))}
           y="-8"
-          width="32"
+          width={spanText.length * 7 + (isTheft ? 40 : 12)}
           height="14"
-          fill="#ffffff"
-          fillOpacity="0.88"
+          fill={isTheft ? '#dcfce7' : '#ffffff'}
+          stroke={isTheft ? '#16a34a' : 'transparent'}
+          strokeWidth="0.8"
+          fillOpacity={isTheft ? 0.95 : 0.88}
           rx="2"
         />
         <text
@@ -196,12 +219,40 @@ export const ConductorRenderer: React.FC<ConductorRendererProps> = ({
           textAnchor="middle"
           fontSize="9.5"
           fontWeight="bold"
-          fill={color}
+          fill={isTheft ? '#15803d' : color}
           className="font-mono tracking-tight"
         >
-          {spanText}
+          {isTheft ? `${spanText} (THEFT)` : spanText}
         </text>
       </g>
+
+      {/* LT AB Cable Gauge Badge (50 sq.mm / 70 sq.mm) */}
+      {edge.type === 'lt_ab_cable' && edge.wireGauge && (
+        <g transform={`translate(${mid.x - perpX}, ${mid.y - perpY})`}>
+          <rect
+            x="-24"
+            y="-7"
+            width="48"
+            height="13"
+            fill="#eff6ff"
+            fillOpacity="0.95"
+            stroke="#2563eb"
+            strokeWidth="0.8"
+            rx="3"
+          />
+          <text
+            x="0"
+            y="2.5"
+            textAnchor="middle"
+            fontSize="8"
+            fontWeight="bold"
+            fill="#1d4ed8"
+            className="font-mono tracking-tight"
+          >
+            {edge.wireGauge}
+          </text>
+        </g>
+      )}
 
       {/* Additional Line Label (e.g. S/C-6 or Special Feeder Name) */}
       {edge.label && (

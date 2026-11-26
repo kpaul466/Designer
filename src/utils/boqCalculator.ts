@@ -150,6 +150,37 @@ export function calculateBoq(
     });
   }
 
+  // 3b. Broken PCC Poles (Survey & Maintenance Replacement)
+  const broken8m = nodes.filter(
+    (n) => n.type === 'broken_pole' && (n.properties.height === '8M' || !n.properties.height)
+  ).length;
+  if (broken8m > 0 || customOverrides?.['boq-broken-8m']) {
+    items.push({
+      id: 'boq-broken-8m',
+      itemNumber: itemNum++,
+      description: 'Dismantling / Replacement of Broken 8M PCC Pole',
+      quantity: customOverrides?.['boq-broken-8m'] ?? `${broken8m}`,
+      unit: 'Nos',
+      isAutoCalculated: true,
+      category: 'pole',
+    });
+  }
+
+  const broken9m = nodes.filter(
+    (n) => n.type === 'broken_pole' && n.properties.height === '9M'
+  ).length;
+  if (broken9m > 0 || customOverrides?.['boq-broken-9m']) {
+    items.push({
+      id: 'boq-broken-9m',
+      itemNumber: itemNum++,
+      description: 'Dismantling / Replacement of Broken 9M PCC Pole',
+      quantity: customOverrides?.['boq-broken-9m'] ?? `${broken9m}`,
+      unit: 'Nos',
+      isAutoCalculated: true,
+      category: 'pole',
+    });
+  }
+
   // 4. Distribution Transformers — classified by the editable capacity attribute.
   // This also counts a DTR mounted on a 4-pole structure (capacityKva on the structure).
   const dtrCounts: Record<DtrCapacity, number> = {
@@ -245,7 +276,7 @@ export function calculateBoq(
     items.push({
       id: 'boq-acsr-3w',
       itemNumber: itemNum++,
-      description: 'Drawal of ACSR 50 SQ.MM 3 Wire',
+      description: 'Drawal of ACSR 50 SQ.MM 2-Phase 3-Wire Line',
       quantity: customOverrides?.['boq-acsr-3w'] ?? `${acsr3wKm}`,
       unit: 'KM',
       isAutoCalculated: true,
@@ -271,8 +302,25 @@ export function calculateBoq(
     items.push({
       id: 'boq-acsr-2w',
       itemNumber: itemNum++,
-      description: 'Drawal of ACSR 50 SQ.MM 2 Wire',
+      description: 'Drawal of ACSR 50 SQ.MM 1-Phase 2-Wire Line',
       quantity: customOverrides?.['boq-acsr-2w'] ?? `${acsr2wKm}`,
+      unit: 'KM',
+      isAutoCalculated: true,
+      category: 'conductor',
+    });
+  }
+
+  const theftAcsrKm = (
+    edges
+      .filter((e) => e.type === 'theft_acsr')
+      .reduce((sum, e) => sum + (e.spanMeters || 0), 0) / 1000
+  ).toFixed(3);
+  if (parseFloat(theftAcsrKm) > 0 || customOverrides?.['boq-theft-acsr']) {
+    items.push({
+      id: 'boq-theft-acsr',
+      itemNumber: itemNum++,
+      description: 'Drawal of ACSR 50 Sq.mm Conductor against Theft Line',
+      quantity: customOverrides?.['boq-theft-acsr'] ?? `${theftAcsrKm}`,
       unit: 'KM',
       isAutoCalculated: true,
       category: 'conductor',
@@ -292,17 +340,73 @@ export function calculateBoq(
     });
   }
 
-  const abCableKm = calcKm('lt_ab_cable');
-  if (parseFloat(abCableKm) > 0 || customOverrides?.['boq-ab-cable']) {
-    items.push({
-      id: 'boq-ab-cable',
-      itemNumber: itemNum++,
-      description: 'Drawal of LT AB Cable',
-      quantity: customOverrides?.['boq-ab-cable'] ?? `${abCableKm}`,
-      unit: 'KM',
-      isAutoCalculated: true,
-      category: 'conductor',
-    });
+  // LT AB Cable: Itemized by size (50 sq.mm / 70 sq.mm / 25 sq.mm)
+  const abEdges = edges.filter((e) => e.type === 'lt_ab_cable' && e.status === 'proposed');
+  const hasSpecificAbSizes = abEdges.some((e) => e.wireGauge === '70 sq.mm' || e.wireGauge === '25 sq.mm');
+
+  if (hasSpecificAbSizes) {
+    const ab50Km = (
+      abEdges
+        .filter((e) => !e.wireGauge || e.wireGauge === '50 sq.mm')
+        .reduce((sum, e) => sum + (e.spanMeters || 0), 0) / 1000
+    ).toFixed(3);
+    const ab70Km = (
+      abEdges
+        .filter((e) => e.wireGauge === '70 sq.mm')
+        .reduce((sum, e) => sum + (e.spanMeters || 0), 0) / 1000
+    ).toFixed(3);
+    const ab25Km = (
+      abEdges
+        .filter((e) => e.wireGauge === '25 sq.mm')
+        .reduce((sum, e) => sum + (e.spanMeters || 0), 0) / 1000
+    ).toFixed(3);
+
+    if (parseFloat(ab50Km) > 0 || customOverrides?.['boq-ab-cable-50']) {
+      items.push({
+        id: 'boq-ab-cable-50',
+        itemNumber: itemNum++,
+        description: 'Drawal of LT AB Cable 3x50 + 1x35 + 1x16 sq.mm',
+        quantity: customOverrides?.['boq-ab-cable-50'] ?? `${ab50Km}`,
+        unit: 'KM',
+        isAutoCalculated: true,
+        category: 'conductor',
+      });
+    }
+    if (parseFloat(ab70Km) > 0 || customOverrides?.['boq-ab-cable-70']) {
+      items.push({
+        id: 'boq-ab-cable-70',
+        itemNumber: itemNum++,
+        description: 'Drawal of LT AB Cable 3x70 + 1x50 + 1x16 sq.mm',
+        quantity: customOverrides?.['boq-ab-cable-70'] ?? `${ab70Km}`,
+        unit: 'KM',
+        isAutoCalculated: true,
+        category: 'conductor',
+      });
+    }
+    if (parseFloat(ab25Km) > 0 || customOverrides?.['boq-ab-cable-25']) {
+      items.push({
+        id: 'boq-ab-cable-25',
+        itemNumber: itemNum++,
+        description: 'Drawal of LT AB Cable 3x25 + 1x25 + 1x16 sq.mm',
+        quantity: customOverrides?.['boq-ab-cable-25'] ?? `${ab25Km}`,
+        unit: 'KM',
+        isAutoCalculated: true,
+        category: 'conductor',
+      });
+    }
+  } else {
+    const abCableKm = calcKm('lt_ab_cable');
+    if (parseFloat(abCableKm) > 0 || customOverrides?.['boq-ab-cable']) {
+      items.push({
+        id: 'boq-ab-cable',
+        itemNumber: itemNum++,
+        description: 'Drawal of LT AB Cable 3x50 + 1x35 + 1x16 sq.mm',
+        quantity: customOverrides?.['boq-ab-cable'] ?? `${abCableKm}`,
+        unit: 'KM',
+        isAutoCalculated: true,
+        category: 'conductor',
+      });
+    }
   }
 
   const serviceEdges = edges.filter((edge) => edge.type === 'service_cable' && edge.status === 'proposed');
@@ -416,6 +520,19 @@ export function calculateBoq(
       description: 'Installation of LT Distribution Kiosk / Pillar Box',
       quantity: customOverrides?.['boq-lt-box'] ?? `${ltBoxCount}`,
       unit: 'Nos',
+      isAutoCalculated: true,
+      category: 'equipment',
+    });
+  }
+
+  const boxBracketCount = nodes.filter((n) => n.status === 'proposed' && n.type === 'box_bracket').length;
+  if (boxBracketCount > 0 || customOverrides?.['boq-box-bracket']) {
+    items.push({
+      id: 'boq-box-bracket',
+      itemNumber: itemNum++,
+      description: 'Supplying & Fixing of Box Bracket Set',
+      quantity: customOverrides?.['boq-box-bracket'] ?? `${boxBracketCount}`,
+      unit: 'Set',
       isAutoCalculated: true,
       category: 'equipment',
     });
@@ -602,8 +719,48 @@ export function generateIndexEntries(
     entries.push({
       id: 'idx-acsr-3w',
       number: num++,
-      description: 'Drawal of ACSR 50 Sq.mm 3 Wire',
+      description: 'Drawal of ACSR 50 Sq.mm 2-Phase 3-Wire',
       symbolKey: 'acsr_3wire',
+      status: 'proposed',
+    });
+  }
+
+  if (edges.some((e) => e.type === 'acsr_2wire')) {
+    entries.push({
+      id: 'idx-acsr-2w',
+      number: num++,
+      description: 'Drawal of ACSR 50 Sq.mm 1-Phase 2-Wire',
+      symbolKey: 'acsr_2wire',
+      status: 'proposed',
+    });
+  }
+
+  if (edges.some((e) => e.type === 'theft_acsr')) {
+    entries.push({
+      id: 'idx-theft-acsr',
+      number: num++,
+      description: 'Theft ACSR Conductor (Re-stringing Line)',
+      symbolKey: 'theft_acsr',
+      status: 'proposed',
+    });
+  }
+
+  if (nodes.some((n) => n.type === 'broken_pole')) {
+    entries.push({
+      id: 'idx-broken-pole',
+      number: num++,
+      description: 'Broken PCC Pole (8M/9M Survey)',
+      symbolKey: 'broken_pole',
+      status: 'proposed',
+    });
+  }
+
+  if (nodes.some((n) => n.type === 'box_bracket')) {
+    entries.push({
+      id: 'idx-box-bracket',
+      number: num++,
+      description: 'Fixing of Box Bracket [o]',
+      symbolKey: 'box_bracket',
       status: 'proposed',
     });
   }

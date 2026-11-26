@@ -19,6 +19,9 @@
     "preview": "vite preview",
     "clean": "rm -rf dist release server.js",
     "lint": "tsc --noEmit",
+    "verify:features": "node .agents/skills/powerline-feature-dev/scripts/verify-feature.mjs",
+    "verify:features:full": "node .agents/skills/powerline-feature-dev/scripts/verify-feature.mjs --full",
+    "audit:engineering": "node .agents/skills/electrical-distribution-engineer/scripts/audit-engineering-integrity.mjs",
     "wb-places": "node scripts/generate-wb-places.mjs",
     "generate-icon": "node scripts/generate-icon.mjs",
     "electron": "electron .",
@@ -40,6 +43,7 @@
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
     "ol": "^10.11.0",
+    "pptxgenjs": "^4.0.1",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "vite": "^8.3.0"
@@ -85,11 +89,15 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "public/powerline-icon.png"
@@ -106,13 +114,19 @@
       "artifactName": "PowerLine-Designer-${version}-portable.${ext}"
     },
     "mac": {
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "category": "public.app-category.productivity",
       "icon": "public/powerline-icon.png",
       "artifactName": "PowerLine-Designer-${version}.${ext}"
     },
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "category": "Development",
       "icon": "public/powerline-icon.png",
       "artifactName": "PowerLine-Designer-${version}.${ext}"

@@ -727,6 +727,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
       'acsr_3wire',
       'acsr_4wire',
       'lt_ab_cable',
+      'theft_acsr',
       'service_cable',
       'service_cable_3ph',
       'ht_ug_cable',
@@ -879,6 +880,9 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
       'commercial_facility',
       'landmark_religious',
       'landmark_school',
+      'substation_tap',
+      'box_bracket',
+      'broken_pole',
     ];
 
     if (nodeTools.includes(activeTool) || activeTool.startsWith('custom_')) {
@@ -894,13 +898,18 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
         x: snapped.x,
         y: snapped.y,
         rotation: 0,
-        status: customDef ? customDef.defaultStatus : 'proposed',
+        status: customDef ? customDef.defaultStatus : activeTool === 'broken_pole' ? 'existing' : 'proposed',
         customToolId: customDef?.id,
         gps: canvasPointToGps(snapped.x, snapped.y, canvasBounds, geoReference),
         properties: {
-          poleNumber: `P-${project.nodes.length + 1}`,
+          poleNumber:
+            activeTool === 'box_bracket'
+              ? undefined
+              : activeTool === 'broken_pole'
+              ? `BP-${project.nodes.filter((n) => n.type === 'broken_pole').length + 1}`
+              : `P-${project.nodes.length + 1}`,
           material: activeTool.includes('rsj') ? 'RSJ' : activeTool.includes('stp') ? 'STP' : 'PCC',
-          height: activeTool.includes('8m') ? '8M' : '9M',
+          height: activeTool.includes('8m') ? '8M' : activeTool === 'broken_pole' ? '8M' : '9M',
           capacityKva: activeTool.includes('25kva')
             ? 25
             : activeTool.includes('63kva')
@@ -1155,6 +1164,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
       'acsr_3wire',
       'acsr_4wire',
       'lt_ab_cable',
+      'theft_acsr',
       'service_cable',
       'service_cable_3ph',
       'ht_ug_cable',
@@ -1172,13 +1182,15 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
           const houseNode =
             fromNode.type === 'consumer_house' ? fromNode : node.type === 'consumer_house' ? node : undefined;
           const isServiceCable = activeTool === 'service_cable' || activeTool === 'service_cable_3ph';
+          const isTheft = activeTool === 'theft_acsr';
           const newEdge: ConductorEdge = {
             id: `edge-${Date.now()}`,
             fromNodeId: lineStartNodeId,
             toNodeId: node.id,
             type: isServiceCable ? 'service_cable' : (activeTool as any),
             spanMeters: pixelDistanceToSpanMeters(spanDist),
-            status: 'proposed',
+            status: isTheft ? 'existing' : 'proposed',
+            wireGauge: isTheft ? '50 sq.mm' : activeTool === 'lt_ab_cable' ? '50 sq.mm' : undefined,
             serviceCableSpec:
               activeTool === 'service_cable_3ph'
                 ? {
@@ -1198,7 +1210,9 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
                   }
                 : undefined,
             label:
-              isServiceCable && houseNode
+              isTheft
+                ? 'THEFT'
+                : isServiceCable && houseNode
                 ? houseNode.properties.serviceConnectionCount !== undefined
                   ? `S/C-${houseNode.properties.serviceConnectionCount}`
                   : activeTool === 'service_cable_3ph'
